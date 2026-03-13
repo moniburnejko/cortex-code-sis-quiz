@@ -2,6 +2,10 @@
 
 > first time with Snowflake or Cortex? use [INSTRUCTIONS_DETAILED.md](INSTRUCTIONS_DETAILED.md) instead.
 
+> **disclaimer:** AI-generated questions and explanations (produced via Cortex AI functions) may be inaccurate - LLM models can hallucinate, and Snowflake exposes older models through AI functions that are less reliable than the latest ones. the CSV question bank is community-sourced from examprepper, not official Snowflake material, so answers there may also be incorrect. always verify against the Snowflake docs when in doubt.
+
+> **performance:** enabling AI-generated questions or AI explanations in the quiz config makes the app noticeably slower - each question requires a live LLM call via Cortex. you can switch to a faster model in `docs/AGENTS.md` (see `docs/custom_config.md`), but faster models tend to hallucinate more. your call.
+
 ---
 
 ## step 1 - run environment setup
