@@ -11,7 +11,7 @@ a hands-on project for Snowflake upskilling. you will use **Cortex Code** - an A
 | **Cortex Code** | prompting an AI agent to write SQL and Python, reviewing generated code, iterating via chat |
 | **Cortex AI functions** | AI_COMPLETE for LLM inference, AI_PARSE_DOCUMENT for PDF extraction |
 | **Streamlit in Snowflake** | building and deploying an interactive Python app inside Snowflake, no infrastructure needed |
-| **SnowPro Core prep** | the app you build runs 1.1K real COF-C02 exam questions to help you study |
+| **SnowPro Core prep** | the app you build runs 1.1K community-sourced COF-C02 practice questions to help you study |
 
 ---
 
@@ -24,7 +24,7 @@ a 4-screen quiz app deployed in Snowsight:
 - **summary** - see your score vs the 75% pass threshold with a wrong-answer review
 - **review** - browse your full history of wrong answers with domain and date filters
 
-the question bank contains **1.1K real SnowPro Core COF-C02 questions** loaded from a CSV file, plus AI-generated questions on demand via Cortex.
+the question bank contains **1.1K community-sourced SnowPro Core COF-C02 practice questions** loaded from a CSV file, plus AI-generated questions on demand via Cortex.
 
 ---
 

@@ -22,7 +22,7 @@ if you are comfortable with Snowflake, use [INSTRUCTIONS.md](INSTRUCTIONS.md) in
 you are going to use **Cortex Code** - an AI coding agent built into Snowsight - to build a quiz app that runs inside Snowflake. you will not write code manually. instead, you direct the agent using structured prompts, review what it produces, and run the verification checks yourself (`docs/checklists.md`).
 
 by the end you will have:
-- a working **Streamlit in Snowflake** app with real SnowPro Core exam questions
+- a working **Streamlit in Snowflake** app with community-sourced SnowPro Core practice questions
 - hands-on experience with **Cortex AI functions** (AI_COMPLETE, AI_PARSE_DOCUMENT)
 - a personal study tool to use while preparing for the **COF-C02 certification exam**
 
