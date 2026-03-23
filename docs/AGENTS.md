@@ -50,6 +50,14 @@ before writing any streamlit code: read the "platform constraints" section of th
 
 files uploaded to `{database}.{schema}.STAGE_QUIZ_DATA` via snowsight ui.
 
+### stage requirements for STAGE_QUIZ_DATA
+
+`STAGE_QUIZ_DATA` must have:
+- `ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')` - required by `AI_PARSE_DOCUMENT` to read files from the stage. without server-side encryption, Cortex AI functions cannot access staged files.
+- `DIRECTORY = (ENABLE = TRUE)` - required for Cortex AI functions to enumerate and reference files on the stage by path.
+
+`STAGE_SIS_APP` does not require these settings.
+
 | file | purpose |
 |---|---|
 | `SnowProCoreStudyGuide.pdf` | EXAM_DOMAINS - extract 6 domains, weights, topics via AI_PARSE_DOCUMENT + AI_COMPLETE |

@@ -38,16 +38,9 @@ fix:
 
 symptom: `AI_PARSE_DOCUMENT` returns an error or refuses to read the PDF.
 
-cause: `AI_PARSE_DOCUMENT` requires server-side encryption on the stage. a stage created without `ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')` is not accessible to Cortex AI functions.
+cause: stage was created without the required settings. see AGENTS.md > "stage requirements for STAGE_QUIZ_DATA" for the correct configuration.
 
-fix: recreate `STAGE_QUIZ_DATA` with encryption and re-upload the PDF:
-```sql
-CREATE OR REPLACE STAGE {database}.{schema}.STAGE_QUIZ_DATA
-  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
-```
-then re-upload `SnowProCoreStudyGuide.pdf` via Snowsight UI.
-
-note: `STAGE_SIS_APP` (used for Streamlit files) does not require encryption.
+fix: recreate `STAGE_QUIZ_DATA` with the required encryption and directory settings, then re-upload the PDF via Snowsight UI.
 
 ---
 
