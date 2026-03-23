@@ -66,9 +66,9 @@ Must not appear. Use `AI_COMPLETE` via `session.sql()` only.
 
 **9. `st.rerun()` count**
 Count all occurrences.
-- PASS: exactly 1 occurrence, in the Submit Answer handler only
-- FAIL: 0 occurrences (submit button stays active after click)
-- FAIL: 2 or more occurrences (double-rerun causes blank screen)
+- PASS: exactly 2 occurrences — Submit Answer handler and Retry button handler (AI question error screen)
+- FAIL: 0 or 1 occurrence (submit button stays active after click, or Retry button does nothing)
+- FAIL: 3 or more occurrences (extra reruns cause blank screen)
 
 **10. `st.experimental_rerun()`**
 Must not appear.

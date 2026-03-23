@@ -2,7 +2,7 @@
 name: test-cortex
 description: Smoke test AI_COMPLETE availability, model access, and cross-region inference. Use when debugging Cortex errors or before deploying quiz.py.
 tools:
-  - SnowflakeSqlExecute
+  - snowflake_sql_execute
 ---
 
 # When to Use
