@@ -1,0 +1,41 @@
+# python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.python-version
+
+# python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# coverage / build artifacts
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+
+# logs
+*.log
+
+# env / secrets
+.env
+.env.*
+snowflake.yml
+
+# ide
+.vscode/
+.idea/
+
+# os / wsl
+.DS_Store
+Thumbs.db
+*Zone.Identifier
+
+# keep data/ visible
+!data/
