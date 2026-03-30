@@ -12,16 +12,20 @@ QUIZ_REVIEW_LOG, QUIZ_SESSION_LOG, and both stages.
 
 then ask me to upload SnowProCoreStudyGuide.pdf to STAGE_QUIZ_DATA. wait for my confirmation.
 
-after i confirm: extract exam domains from the pdf and insert them into EXAM_DOMAINS.
+after i confirm:
+1. extract exam domains from the pdf and insert them into EXAM_DOMAINS (domain_id, domain_name, weight_pct, topics).
+2. for each of the 6 domains: extract key_facts from the pdf and UPDATE EXAM_DOMAINS SET key_facts = ... per the spec in AGENTS.md under "EXAM_DOMAINS". do this domain by domain — run one UPDATE per domain, verify it set a non-null value before moving to the next.
 
 when done, run these verification queries and report the results:
 1. SELECT COUNT(*) FROM EXAM_DOMAINS;
 2. SELECT SUM(weight_pct) FROM EXAM_DOMAINS;
 3. SELECT COUNT(*) FROM QUIZ_SESSION_LOG;
-4. SHOW STAGES;
+4. SELECT domain_name, LENGTH(key_facts) AS facts_len FROM EXAM_DOMAINS ORDER BY domain_id;
+5. SHOW STAGES;
 
 done criteria:
 - EXAM_DOMAINS: 6 rows, weights sum to 100.0
+- key_facts: all 6 domains have facts_len > 0
 - QUIZ_SESSION_LOG: 0 rows (empty, table exists)
 - STAGE_QUIZ_DATA and STAGE_SIS_APP exist
 ```

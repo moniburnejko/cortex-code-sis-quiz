@@ -93,11 +93,32 @@ CREATE TABLE IF NOT EXISTS {database}.{schema}.EXAM_DOMAINS (
     domain_id    VARCHAR PRIMARY KEY,
     domain_name  VARCHAR NOT NULL,
     weight_pct   FLOAT NOT NULL,
-    topics       VARIANT             -- JSON array of topic strings
+    topics       VARIANT,            -- JSON array of topic strings
+    key_facts    VARCHAR             -- numbered list of testable facts extracted from study guide
 );
 ```
 
 extract from `SnowProCoreStudyGuide.pdf` using AI_PARSE_DOCUMENT + AI_COMPLETE. do NOT hardcode domain values.
+
+after inserting all 6 domains, populate `key_facts` for each domain. for each domain run:
+
+```sql
+UPDATE {database}.{schema}.EXAM_DOMAINS
+SET key_facts = AI_COMPLETE(
+    '{CORTEX_MODEL}',
+    $$You are preparing a SnowPro Core COF-C02 exam study guide.
+From the documentation below, extract the facts a student must know about the "{domain_name}" domain.
+Focus on: exact limits and default values, specific behaviors and constraints, key differences between features, common misconceptions (what X does NOT do), correct Snowflake-specific terminology.
+Return a numbered list of up to 40 precise testable facts. Each fact max 120 characters.
+Do NOT include general conceptual descriptions - only specific verifiable facts.
+
+Documentation:
+{AI_PARSE_DOCUMENT content for this domain}$$
+)
+WHERE domain_id = '{domain_id}';
+```
+
+use AI_PARSE_DOCUMENT on `@{database}.{schema}.STAGE_QUIZ_DATA/SnowProCoreStudyGuide.pdf` to get the document content, then pass it as context for each domain's extraction. if `key_facts` is NULL after update (AI_COMPLETE failed), set it to an empty string — do not leave NULL.
 
 ### QUIZ_QUESTIONS
 
@@ -180,6 +201,7 @@ these are Snowflake / Streamlit-in-Snowflake requirements. they are not style pr
 
 - `st.container(border=True)` - supported. use for card-style grouping.
 - `st.progress(value, text="...")` - `text` parameter supported. use for labeled progress bars.
+- `st.segmented_control(label, options, format_func=..., default=...)` - supported. use for single-select pill-style controls (e.g. difficulty, question source). always guard against `None` return: `if value is None: value = default`.
 
 ### multi-answer questions
 
@@ -213,11 +235,14 @@ on exception: store the error string in `st.session_state["last_cortex_error"]`;
 
 ### parsing AI_COMPLETE responses
 
-AI_COMPLETE has two known encoding issues:
+AI_COMPLETE has three known encoding issues:
 1. **markdown fences** - response wrapped in ` ```json ... ``` `
 2. **double-encoded JSON** - `json.loads()` returns a `str` instead of `dict`; parse again
+3. **JSON-encoded string containing markdown-fenced JSON** - response starts with `"`, `json.loads()` returns a string like `` ```json\n{...}\n``` ``; must strip fences from that string before the second parse
 
-parsing function must: strip markdown fences >`json.loads()` >if result is `str`, `json.loads()` again >fallback: regex-extract first `{…}` block and parse >return `None` on all failures (never raise).
+parsing function must: extract a helper `_strip_fences(text)` >apply it to initial text >
+`json.loads()` >if result is `str`, apply `_strip_fences` again then `json.loads()` again >
+fallback: regex-extract first `{…}` block and parse >return `None` on all failures (never raise).
 
 always call `isinstance(result, dict)` before calling `.get()` on the return value.
 
@@ -225,11 +250,28 @@ never call `json.loads()` directly on a Cortex response - always go through the 
 
 ### AI question generation
 
-ask Cortex to generate a `{difficulty}` question for the given domain and topics, returning ONLY valid JSON:
+ask Cortex to generate a `{difficulty}` question for the given domain, grounded in `key_facts` from EXAM_DOMAINS. the prompt must follow this structure:
 
-```json
-{"question_text":"...","is_multi":false,"option_a":"...","option_b":"...","option_c":"...","option_d":"...","option_e":null,"correct_answer":"C"}
 ```
+You are a SnowPro Core COF-C02 exam question writer.
+Ground your question ONLY in the following verified facts from the official study guide:
+
+{key_facts}
+
+Based ONLY on the facts above, generate a {difficulty} multiple-choice question for domain: {domain_name}.
+Rules:
+- Every answer option must reflect actual Snowflake behavior documented in the facts above
+- The correct answer must be explicitly supported by one of the facts above
+- Wrong options should represent common misconceptions, not invented behaviors
+- Do not include specific numbers, limits, or behaviors not mentioned in the facts above
+- Vary the topic area — prioritize topics not covered recently
+- Do NOT repeat these recent questions:
+{no_repeat_block}
+
+Return ONLY a valid JSON object (no markdown fences) with these exact keys: ...
+```
+
+if `key_facts` is empty for a domain, fall back to topics-only prompt (no grounding context).
 
 length constraints (include explicitly in the prompt to prevent truncation):
 - `question_text`: max 150 characters
@@ -256,7 +298,9 @@ after a successful generation and validation: INSERT the question into `QUIZ_QUE
 
 generate explanations **in the render phase** (`if answered:` block), not in the Submit handler. this keeps submit fast and the Cortex call lazy.
 
-generate the explanation for **every answered question** - both correct and incorrect. the `doc_url` field is always needed regardless of correctness.
+**correct answer:** fetch `doc_url` only — minimal Cortex call returning `{"doc_url": "https://..."}`. render as a plain markdown link below the result row. no expander.
+
+**wrong answer:** full explanation — `why_correct`, `why_wrong`, `mnemonic`, `doc_url`. render inside expander.
 
 explanation state in `st.session_state["explanation"]`:
 - `None` >not yet attempted; call Cortex and store result
@@ -308,7 +352,7 @@ on "Next": reset `st.session_state["explanation"] = None`.
 quiz.py has these functions, in this order:
 
 1. `init_session_state()` - set defaults for all session state keys
-2. `load_domains()` - `@st.cache_data(ttl=300)`, calls `get_active_session()` inside
+2. `load_domains()` - `@st.cache_data(ttl=300)`, calls `get_active_session()` inside. query includes `key_facts` column
 3. `load_session_stats()` - `@st.cache_data(ttl=60)`, aggregate stats from QUIZ_SESSION_LOG
 4. `load_recent_sessions()` - `@st.cache_data(ttl=60)`, last 10 sessions for trend chart
 5. `load_domain_errors()` - `@st.cache_data(ttl=60)`, error counts per domain from QUIZ_REVIEW_LOG
@@ -347,9 +391,9 @@ st.caption("COF-C02 · Certification Practice")
 
 controls (in order):
 - `st.select_slider`: number of questions - options: 5, 10, 25, 50, 100
-- `st.selectbox`: difficulty - mixed / easy / medium / hard
 - `st.selectbox`: domain focus - "All" + domain names from EXAM_DOMAINS
-- `st.selectbox`: question source - "mix (80% DB + 20% AI)" / "db" (DB only) / "ai" (AI only)
+- `st.segmented_control`: difficulty - options `["mixed", "easy", "medium", "hard"]`, `format_func=lambda x: x.capitalize()`. guard: `if difficulty is None: difficulty = "mixed"`
+- `st.segmented_control`: question source - options `["mix", "db", "ai"]`, `format_func` maps to `"Mix (DB + AI)" / "DB only" / "AI only"`. guard: `if question_source is None: question_source = "mix"`
 - `st.toggle`: enable AI explanations
 
 ```python
