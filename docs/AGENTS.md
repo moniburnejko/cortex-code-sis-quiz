@@ -176,6 +176,11 @@ these are Snowflake / Streamlit-in-Snowflake requirements. they are not style pr
 - `.applymap()` - removed in pandas ≥ 2.1. use `.map()`.
 - `from snowflake.cortex import complete` - do not import. use `AI_COMPLETE` via `session.sql()`.
 
+### supported apis (confirmed in SiS 1.52.*)
+
+- `st.container(border=True)` - supported. use for card-style grouping.
+- `st.progress(value, text="...")` - `text` parameter supported. use for labeled progress bars.
+
 ### multi-answer questions
 
 render each option as an independent `st.checkbox` with a stable key (e.g. `cb_A`). read selected options by checking session state after rendering. disable all checkboxes once answered. on "Next": delete all `cb_*` keys from session state manually.
@@ -231,7 +236,15 @@ length constraints (include explicitly in the prompt to prevent truncation):
 - each option: max 80 characters
 - respond with ONLY the JSON object, no markdown fences, no extra text
 
-to avoid repetition: pass already-asked question texts (up to 10, truncated to 80 chars each) as a "do not repeat" block in the prompt.
+to avoid repetition across sessions: before calling AI_COMPLETE, query the last 20 AI-generated questions for this domain:
+```sql
+SELECT question_text FROM QUIZ_QUESTIONS
+WHERE source = 'AI_GENERATED' AND domain_id = :1
+ORDER BY created_at DESC LIMIT 20
+```
+merge these with question texts already asked this session (from round_history). truncate each to 80 chars. pass up to 30 unique items as a "do not repeat" block in the prompt.
+
+also pass the domain's topics list (from EXAM_DOMAINS) in the prompt and ask Cortex to "vary the topic area — prioritize topics not covered recently".
 
 validate the parsed result: `question_text`, `option_a`, `option_b`, `correct_answer` must all be non-empty. retry up to 3 times on failure.
 
@@ -265,10 +278,16 @@ ask Cortex to return ONLY valid JSON with these keys:
 - `mnemonic`: a memorable phrase, acronym, or analogy to help remember the correct answer
 - `doc_url`: exact URL to the most relevant Snowflake documentation page
 
-**result row** (always shown, for all answers):
-- two side-by-side columns using `st.columns(2)`:
-  - left: `st.success("CORRECT: {letter}) {full_text}")` (green)
-  - right: `st.error("YOUR ANSWER: {letter}) {full_text}")` (red) - or `st.success` if correct
+**result row** (always shown, for all answers) — plain markdown, no colored boxes:
+```python
+if is_correct:
+    st.markdown("**Correct!**")
+    st.markdown(f"Your answer: {letter}) {full_text}")
+else:
+    st.markdown("**Incorrect!**")
+    st.markdown(f"Correct answer: {correct_letter}) {correct_text}")
+    st.markdown(f"Your answer: {selected_letter}) {selected_text}")
+```
 
 rendering (`st.expander("✨ AI Explanation", expanded=True)`):
 - `why_correct` >bold header + `st.write()`
@@ -321,12 +340,22 @@ with tab_progress:
 
 ## home screen
 
+```python
+st.title("SnowPro Core Quiz")
+st.caption("COF-C02 · Certification Practice")
+```
+
 controls (in order):
 - `st.select_slider`: number of questions - options: 5, 10, 25, 50, 100
 - `st.selectbox`: difficulty - mixed / easy / medium / hard
 - `st.selectbox`: domain focus - "All" + domain names from EXAM_DOMAINS
-- `st.selectbox`: question source - "mix" (80% DB + 20% AI) / "db" (DB only) / "ai" (AI only)
+- `st.selectbox`: question source - "mix (80% DB + 20% AI)" / "db" (DB only) / "ai" (AI only)
 - `st.toggle`: enable AI explanations
+
+```python
+st.divider()
+st.button("Start Round", type="primary", use_container_width=True)
+```
 
 "Start Round" button: saves all settings to session state, loads the first question, sets screen to "quiz". no `st.rerun()`.
 
@@ -336,9 +365,9 @@ controls (in order):
 
 ### layout
 
-- progress bar: question X of total
-- domain + difficulty metadata (one line)
-- question text as `### heading`
+- progress bar with inline label: `st.progress(value=(q_index+1)/round_size, text=f"Question {q_index+1} of {round_size}")`
+- domain + difficulty: single caption line: `st.caption(f"{domain_name} · {difficulty}")`
+- question text: `st.subheader(question_text)`
 
 ### answer input
 
@@ -346,7 +375,7 @@ single-answer: `st.radio` with `index=None`, keyed by question index, disabled o
 
 multi-answer: one `st.checkbox` per option, disabled once answered. submit enabled only when exactly the right number of answers are selected (match `len(correct_letters)`).
 
-Submit Answer button: disabled when no answer selected.
+Submit Answer button: `type="primary"`, `use_container_width=True`, disabled when no answer selected.
 
 ### on submit
 
@@ -356,21 +385,20 @@ Submit Answer button: disabled when no answer selected.
 
 ### after submission
 
-**result row** (always shown):
-- two side-by-side columns (see "AI explanation generation" for details):
-  - `st.success("CORRECT: C) full text")` - always green
-  - `st.error("YOUR ANSWER: A) full text")` - red if wrong, green if correct
+**result row** (always shown) — plain markdown, no colored boxes. see "AI explanation generation" for exact implementation.
 
 **explanation** (when `use_explanations` is ON):
 - generate and render AI explanation below result row (see "AI explanation generation")
 - `doc_url` link shown for all answers (correct and incorrect)
 
-no inline colors or CSS - use native `st.success()` / `st.error()` / `st.info()` only.
+result row uses `st.markdown()` only — no `st.success()` / `st.error()` for the result row. `st.info()` stays for the mnemonic box.
 
 ### navigation
 
 last question: "Finish" button >write wrong answers to QUIZ_REVIEW_LOG >go to summary screen.
 other questions: "Next" button >clear checkbox state >load next question >increment index.
+
+navigation buttons: right-aligned — `nav_l, nav_r = st.columns([3, 1])` → place Next / Finish in `nav_r`.
 
 ---
 
@@ -426,20 +454,37 @@ each submitted answer appended to `round_history`:
 
 ## summary screen
 
-- title + score: `correct_count / total_count` as "7/10 correct - 70%"
-- pass/fail vs 75% threshold
-- wrong answer review (expandable): question text, correct answer with full option text, mnemonic (if any)
-- "Play Again" (same settings) and "New Round" (back to home) buttons
+```python
+st.metric(label="Score", value=f"{correct}/{total}", delta=f"{pct:.0f}%")
+```
+
+pass/fail (one line):
+- passed: `st.success("Passed ✓ — above 75% threshold")`
+- failed: `st.warning(f"Not yet — {75-pct:.1f}% to go")`
+
+wrong answers: one `st.expander(question_text[:60] + "…", expanded=False)` per wrong answer containing correct answer with full option text and mnemonic (if any). collapsed by default.
+
+buttons side by side:
+```python
+col_a, col_b = st.columns(2)
+col_a.button("Play Again")           # same settings
+col_b.button("New Round", type="primary")  # back to home
+```
 
 ---
 
 ## review tab
 
 - wrong answers from QUIZ_REVIEW_LOG, ordered by `logged_at DESC`
-- filter by domain (`st.selectbox`)
-- filter by date range (`st.date_input`) - cast dates from `.collect()` to `datetime.date`; use `< end+1day` query pattern
+- filters side by side: `fcol1, fcol2 = st.columns([2, 2])` → domain selectbox in `fcol1`, date range in `fcol2`
+- date range: cast dates from `.collect()` to `datetime.date`; use `< end+1day` query pattern
 - if no entries: show info message and return early
-- cards: domain, difficulty, question text, correct answer (full text), mnemonic, doc_url link
+- each card: `st.container(border=True)` containing:
+  - `st.caption(f"{domain} · {difficulty} · {date}")` — one metadata line
+  - `st.markdown(question_text)`
+  - `st.markdown(f"**Correct answer:** {answer}")`
+  - `st.markdown(f"💡 {mnemonic}")` — only if mnemonic is non-empty
+  - markdown link to doc_url — only if doc_url is non-empty
 
 ---
 
@@ -451,23 +496,66 @@ the "📊 Progress" tab. shows learning analytics from QUIZ_SESSION_LOG and QUIZ
 
 **cached queries** (all use `@st.cache_data(ttl=60)` with `get_active_session()` inside):
 - `load_session_stats()`: `SELECT COUNT(*) as sessions, AVG(score_pct) as avg_score, SUM(round_size) as total_questions FROM QUIZ_SESSION_LOG`
-- `load_recent_sessions()`: `SELECT session_ts, score_pct, round_size FROM QUIZ_SESSION_LOG ORDER BY session_ts DESC LIMIT 10`
+- `load_recent_sessions()`: adds a session number for the x-axis:
+  ```sql
+  SELECT ROW_NUMBER() OVER (ORDER BY session_ts) AS session_num,
+         session_ts, score_pct, round_size
+  FROM QUIZ_SESSION_LOG ORDER BY session_ts ASC LIMIT 10
+  ```
 - `load_domain_errors()`: `SELECT domain_name, COUNT(*) as error_count FROM QUIZ_REVIEW_LOG GROUP BY domain_name ORDER BY error_count DESC`
 
 **layout:**
 
-Row 1 - 3 metric cards (`st.columns(3)`):
-- Sessions (COUNT)
-- Avg Score % (AVG score_pct, formatted as "X%")
-- Questions Practiced (SUM round_size)
+Row 1 — 3 metric cards (`st.columns(3)`):
+- `st.metric("Sessions", sessions)`
+- `st.metric("Avg Score", f"{avg_score:.1f}%", delta=f"{avg_score-75:+.1f}% vs pass")`
+- `st.metric("Questions Practiced", total_questions)`
 
-Row 2 - 2 panels (`st.columns(2)`):
-- Left: **Readiness Score** - AVG(score_pct) as progress bar, "X% - need 75% to pass", delta shown
-- Right: **Recent Sessions** - bar chart (Altair) of last 10 sessions (x=session_ts, y=score_pct), 75% threshold line
+`st.divider()`
 
-Row 3 - 2 panels (`st.columns(2)`):
-- Left: **Errors by Domain** - horizontal bar chart from `load_domain_errors()`
-- Right: **Weak Spots** - top 3 domains by error count as styled cards. each has a "Practice" button that sets `st.session_state["domain_filter"] = domain_name` and `st.session_state["screen"] = "home"` (no st.rerun needed - existing navigation pattern)
+Row 2 — 2 panels (`st.columns(2)`):
+- Left: **Readiness Score**
+  ```python
+  st.markdown("**Readiness Score**")
+  st.progress(avg_score / 100)
+  st.caption(f"{avg_score:.1f}% — need 75% to pass ({avg_score-75:+.1f}%)")
+  ```
+- Right: **Recent Sessions** — Altair bar chart:
+  ```python
+  import altair as alt
+  bars = alt.Chart(df).mark_bar().encode(
+      x=alt.X("session_num:O", title="Session", axis=alt.Axis(labelAngle=0)),
+      y=alt.Y("score_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Score %"),
+      color=alt.condition(
+          alt.datum.score_pct >= 75,
+          alt.value("#4CAF50"),
+          alt.value("#2196F3")
+      )
+  )
+  rule = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(
+      color="red", strokeDash=[4, 4]
+  ).encode(y="y:Q")
+  st.altair_chart(bars + rule, use_container_width=True)
+  ```
+
+`st.divider()`
+
+Row 3 — 2 panels (`st.columns(2)`):
+- Left: **Errors by Domain** — Altair horizontal bar chart:
+  ```python
+  chart = alt.Chart(df).mark_bar().encode(
+      x=alt.X("error_count:Q", title="Errors"),
+      y=alt.Y("domain_name:N", sort="-x", title=None),
+      color=alt.value("#EF5350")
+  )
+  st.altair_chart(chart, use_container_width=True)
+  ```
+- Right: **Weak Spots** — top 3 domains by error count. for each:
+  ```python
+  st.markdown(f"**{domain_name}** — {count} errors")
+  st.button("Practice", key=f"practice_{domain_name}")  # sets domain_filter + screen="home"
+  ```
+  "Practice" button: sets `st.session_state["domain_filter"] = domain_name` and `st.session_state["screen"] = "home"` (no st.rerun needed)
 
 ---
 
@@ -582,4 +670,5 @@ channels:
 dependencies:
   - streamlit=1.52.*
   - pandas
+  - altair
 ```

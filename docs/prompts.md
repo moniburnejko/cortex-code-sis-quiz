@@ -67,7 +67,7 @@ key requirements:
 - question_source selectbox: mix / db / ai
 - implement render_dashboard() per the "progress dashboard" section of AGENTS.md
 - implement QUIZ_SESSION_LOG write-back per the "write-back on round end" section
-- result display: two-column st.success/st.error for correct/user answer
+- result display: plain st.markdown() — "Correct!" / "Incorrect!" + correct answer + your answer (no colored boxes)
 - explanation UI: why_correct, why_wrong (per-option), mnemonic, doc_url
 
 when done, run the pre-deploy scan from the /streamlit-in-snowflake skill. fix all issues. re-scan until clean.
@@ -93,7 +93,7 @@ please confirm each of the following:
 2. DB only mode: questions appear immediately, correct answer shown with full text after submitting
 3. AI only mode: questions generate (may take a few seconds), or retry button appears with error details
 4. Mix mode: mix of DB and AI questions
-5. result display: two-column row — green box (correct answer) and red box (your answer)
+5. result display: plain text — "Correct!" or "Incorrect!" followed by correct answer and your answer (no green/red boxes)
 6. wrong answer + explanations ON:
    - spinner appears while generating
    - "✨ AI Explanation" shows: why_correct (2-3 sentences), why_wrong (per-option), mnemonic (💡 Remember: ...), doc_url

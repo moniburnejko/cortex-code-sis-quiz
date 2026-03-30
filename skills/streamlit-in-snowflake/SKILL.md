@@ -106,8 +106,12 @@ Snowflake returns UPPERCASE column names. Normalize with:
 ## Styling
 
 No `unsafe_allow_html=True`, no inline CSS. Use native Streamlit components:
-- `st.success()` / `st.error()` / `st.warning()` / `st.info()` for colored boxes
-- Emoji for result indicators
+- `st.markdown()` for result row — plain bold text only, no colored boxes for correct/incorrect feedback
+- `st.info()` for mnemonic box (`💡 Remember: ...`)
+- `st.success()` / `st.warning()` for pass/fail summary (one-line only)
+- `st.caption()` for secondary/metadata text (domain, difficulty, dates)
+- `st.container(border=True)` for card-style grouping (supported in SiS 1.52.*)
+- `st.progress(value, text="...")` — `text` param supported in SiS 1.52.*
 - `st.set_page_config(layout="centered")` must be the **first** `st.*` call in the file
 
 ## SQL Safety
