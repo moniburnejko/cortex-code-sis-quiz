@@ -117,6 +117,12 @@ CREATE TABLE IF NOT EXISTS {database}.{schema}.EXAM_DOMAINS (
 
 extract from `SnowProCoreStudyGuide.pdf` using AI_PARSE_DOCUMENT + AI_COMPLETE. do NOT hardcode domain values.
 
+### how to call AI_PARSE_DOCUMENT
+
+see the **`cortex-ai` skill** for the correct SQL pattern (`BUILD_SCOPED_FILE_URL`, no `PARSE_JSON`, no manual pagination). the result is a VARIANT with a `content` key — access as `result:content::VARCHAR`.
+
+### key_facts extraction
+
 after inserting all 6 domains, populate `key_facts` for each domain. for each domain run:
 
 ```sql
@@ -130,12 +136,12 @@ Return a numbered list of up to 40 precise testable facts. Each fact max 120 cha
 Do NOT include general conceptual descriptions - only specific verifiable facts.
 
 Documentation:
-{AI_PARSE_DOCUMENT content for this domain}$$
+{full document content from AI_PARSE_DOCUMENT}$$
 )
 WHERE domain_id = '{domain_id}';
 ```
 
-use AI_PARSE_DOCUMENT on `@{database}.{schema}.STAGE_QUIZ_DATA/SnowProCoreStudyGuide.pdf` to get the document content, then pass it as context for each domain's extraction. if `key_facts` is NULL after update (AI_COMPLETE failed), set it to an empty string — do not leave NULL.
+pass the **full document content** (from `AI_PARSE_DOCUMENT ... :content::VARCHAR`) as context for each domain's extraction. if `key_facts` is NULL after update (AI_COMPLETE failed), set it to an empty string — do not leave NULL.
 
 ### QUIZ_QUESTIONS
 
@@ -203,7 +209,7 @@ these are Snowflake / Streamlit-in-Snowflake requirements. they are not style pr
 
 ### re-rendering
 
-- `st.rerun()` is allowed in exactly two places: the Submit Answer button handler (to hide submit and reveal answered state), and the Retry button in the AI question error screen (to trigger a fresh generation attempt after clearing error state).
+- `st.rerun()` is allowed in exactly three places: (1) the Submit Answer button handler — to hide submit and reveal answered state, (2) the Next button handler — to force a clean rerender after loading the next question (without it, stale widgets from the answered state render alongside the new question: duplicate buttons, ghost spinners), and (3) the Retry button in the AI question error screen — to trigger a fresh generation attempt after clearing error state.
 - never call `st.rerun()` from screen transitions (home >quiz, quiz >summary). set `st.session_state["screen"]` and let the next interaction re-render.
 
 ### unsupported apis
@@ -437,6 +443,26 @@ st.button("Start Round", type="primary", use_container_width=True)
 
 ## quiz screen
 
+### lazy load pattern
+
+at the top of `render_quiz`, before rendering any widgets:
+
+```python
+q = st.session_state.get("question")
+if q is None:
+    with st.spinner("Loading question..."):
+        q = get_question(...)
+    if q is not None:
+        st.session_state["question"] = q
+        st.rerun()       # clean rerender with loaded question
+    else:
+        # show error UI (cortex error, raw response, parse error)
+        # Retry button → clear error state → st.rerun()
+        return
+```
+
+**why:** the "Next" button handler only sets `question = None` and calls `st.rerun()`. it does NOT call `get_question()` inside the handler. if it did, Streamlit would render stale widgets (duplicate buttons, ghost spinners) from the previous answered state alongside the loading spinner. the lazy load pattern ensures a clean page: only the spinner is visible during loading, then a full rerender shows the new question.
+
 ### layout
 
 - progress bar with inline label: `st.progress(value=(q_index+1)/round_size, text=f"Question {q_index+1} of {round_size}")`
@@ -455,7 +481,7 @@ Submit Answer button: `type="primary"`, `use_container_width=True`, disabled whe
 
 - record result in session state and append to `round_history`
 - do NOT call Cortex in the submit handler
-- call `st.rerun()` at the end (exactly here, nowhere else)
+- call `st.rerun()` at the end
 
 ### after submission
 
@@ -470,7 +496,7 @@ result row uses `st.markdown()` only — no `st.success()` / `st.error()` for th
 ### navigation
 
 last question: "Finish" button >write wrong answers to QUIZ_REVIEW_LOG >go to summary screen.
-other questions: "Next" button >clear checkbox state >load next question >increment index.
+other questions: "Next" button >set `question = None`, clear checkbox/explanation state, increment index >`st.rerun()`. the actual question loading happens on the next rerun cycle at the top of `render_quiz` (lazy load pattern — see below).
 
 navigation buttons: right-aligned — `nav_l, nav_r = st.columns([3, 1])` → place Next / Finish in `nav_r`.
 
@@ -675,7 +701,7 @@ after all wrong-answer inserts, write one session summary row:
 | skill | when to use |
 |---|---|
 | `/streamlit-in-snowflake` | SiS coding patterns + pre-deploy scan (22-item safety gate) |
-| `/test-cortex` | when AI_COMPLETE fails or returns unexpected output |
+| `/cortex-ai` | Cortex AI function patterns (AI_COMPLETE, AI_PARSE_DOCUMENT, stages) and diagnostics |
 | `/cortex-prompt` | when explanations or question generation produce poor output |
 | `/switch-exam` | switch to a different certification exam (creates new schema) |
 

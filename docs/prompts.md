@@ -128,7 +128,7 @@ read AGENTS.md before making any changes.
 
 the issue is: [describe the error]
 
-if the issue involves AI_COMPLETE, model access, or cross-region inference: run /test-cortex first
+if the issue involves AI_COMPLETE, model access, or cross-region inference: run /cortex-ai first
 and report the results.
 
 run the pre-deploy scan from the /streamlit-in-snowflake skill. do not redeploy until the scan is clean.

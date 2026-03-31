@@ -89,3 +89,4 @@ For each prompt found, output a summary table:
 **Final verdict per prompt:**
 - All 7 PASS → "Prompt is reliable and safe."
 - Any FAIL → "Rewrite required." - show the corrected prompt in full.
+

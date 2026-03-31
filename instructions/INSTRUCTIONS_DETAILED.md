@@ -101,7 +101,7 @@ open a workspace in Snowsight and open the Cortex Code chat panel (white star ic
 2. **upload skills:** click the **+** icon in the chat input > **Upload skill folder(s)** > select the `skills/` folder from your local clone
 
 > Cortex Code will now read AGENTS.md as background context on every message you send.
-> the skills folder adds custom slash commands (`/cortex-prompt`, `/sql-safe`, `/pre-deploy-scan`, `/test-cortex`) that Cortex Code uses during the build phases.
+> the skills folder adds custom slash commands (`/cortex-prompt`, `/sql-safe`, `/pre-deploy-scan`, `/cortex-ai`) that Cortex Code uses during the build phases.
 
 ---
 
@@ -191,7 +191,7 @@ see `docs/known-bugs.md` for common issues and solutions.
 make sure AGENTS.md is added to the session context (attachment icon). if the session has been running for a long time, start a new session and re-add the file.
 
 **model availability error on AI_COMPLETE:**
-run `/test-cortex` in Cortex Code - it will diagnose which step fails and provide the fix.
+run `/cortex-ai` in Cortex Code - it will diagnose which step fails and provide the fix.
 most common cause: cross-region inference is not enabled. run step 1 from `setup/setup.sql` as ACCOUNTADMIN.
 
 **COPY INTO loads 0 rows:**

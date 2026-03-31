@@ -80,7 +80,7 @@ cortex-code-sis-quiz/
 │   └── setup.md                        <- explains what setup.sql creates and why
 └── skills/
     ├── pre-deploy-scan/SKILL.md        <- 22-item safety gate before every deploy
-    ├── test-cortex/SKILL.md            <- smoke test for AI_COMPLETE and model access
+    ├── cortex-ai/SKILL.md              <- Cortex AI function patterns and diagnostics
     ├── sql-safe/SKILL.md               <- SQL injection audit
     └── cortex-prompt/SKILL.md          <- prompt quality audit
 ```

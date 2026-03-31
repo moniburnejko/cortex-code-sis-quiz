@@ -50,19 +50,36 @@ else:
     render_summary()
 ```
 
-## st.rerun() - exactly 2 occurrences allowed
+## st.rerun() - exactly 3 occurrences allowed
 
-`st.rerun()` is valid in exactly two places:
-1. Submit Answer button handler - to hide submit and reveal answered state
-2. Retry button in AI question error screen - to trigger a fresh generation attempt
+`st.rerun()` is valid in exactly three places:
+1. **Submit Answer** button handler — to hide submit and reveal answered state
+2. **Next** button handler — to force a clean rerender after loading the next question. without this, Streamlit renders stale widgets from the previous answered state (duplicate buttons, ghost spinners) alongside the new question.
+3. **Retry** button in AI question error screen — to trigger a fresh generation attempt
 
 Everywhere else: use session state flags. Extra reruns cause blank screens.
 
 ```python
+# occurrence 1: Submit
 if st.button("Submit Answer", disabled=submit_disabled):
     st.session_state["answered"] = True
-    st.rerun()   # occurrence 1
+    st.rerun()
+
+# occurrence 2: Next — set flags only, rerun immediately
+# NEVER call get_question() inside this handler — it causes duplicate widgets
+if st.button("Next"):
+    st.session_state["q_index"] += 1
+    st.session_state["answered"] = False
+    st.session_state["question"] = None   # triggers lazy load on next cycle
+    # ... clear checkbox keys, explanation, etc ...
+    st.rerun()
+
+# occurrence 2b: lazy load at top of render_quiz (same rerun cycle)
+# render_quiz detects question=None, loads it with st.spinner, then st.rerun() again
 ```
+
+**CRITICAL — lazy load pattern for Next button:**
+Never call `get_question()` inside a button handler. Streamlit renders the full page top-to-bottom; if the handler takes time (AI generation), stale widgets from the previous state (duplicate buttons, ghost spinners) appear alongside the loading spinner. Instead: set `question = None` + `st.rerun()`, then load the question at the top of `render_quiz` on the fresh rerun cycle.
 
 ## Multi-Answer Checkboxes
 
@@ -112,7 +129,7 @@ SiS serializes session_state between reruns. Mutable objects (lists, sets, dicts
 2. **Use `round_history`** (which is built in the Submit handler + `st.rerun()`) as the single source of truth for "what has been shown."
 3. **For DB dedup:** collect `question_text` values from `round_history` + current question, pass them as bind params to `NOT IN` in SQL.
 4. **For AI dedup:** collect `question_text[:80]` from `round_history`, pass as "DO NOT repeat" block in the prompt.
-5. **Never rely on state written in the "Next" button handler** (which does NOT call `st.rerun()`). Only state written before a `st.rerun()` is guaranteed to persist.
+5. **The "Next" button handler MUST call `st.rerun()`** after loading the new question. Without it, Streamlit renders stale widgets (duplicate buttons, ghost spinners) from the previous answered state alongside the new question.
 
 ```python
 # GOOD — dedup via round_history (survives reruns)
@@ -205,9 +222,9 @@ Must not appear. Use `AI_COMPLETE` via `session.sql()` only.
 
 **9. `st.rerun()` count**
 Count all occurrences.
-- PASS: exactly 2 occurrences - Submit Answer handler and Retry button handler (AI question error screen)
-- FAIL: 0 or 1 occurrence (submit button stays active after click, or Retry button does nothing)
-- FAIL: 3 or more occurrences (extra reruns cause blank screen)
+- PASS: exactly 3 occurrences — Submit Answer handler, Next button handler, and Retry button handler
+- FAIL: 0-2 occurrences (missing Next rerun causes duplicate buttons/ghost spinners)
+- FAIL: 4 or more occurrences (extra reruns cause blank screen)
 
 **10. `st.experimental_rerun()`**
 Must not appear.
