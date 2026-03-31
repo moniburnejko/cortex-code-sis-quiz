@@ -50,7 +50,7 @@ open a Cortex Code workspace in Snowsight. load the project files manually:
 
 paste the **phase 1** prompt from `docs/prompts.md` into the chat.
 upload `SnowProCoreStudyGuide.pdf` to STAGE_QUIZ_DATA when asked.
-verify with the phase 1 checklist in `docs/checklists.md`.
+verify with the done criteria at the end of the phase 1 prompt.
 
 ---
 
@@ -58,7 +58,7 @@ verify with the phase 1 checklist in `docs/checklists.md`.
 
 paste the **phase 2** prompt from `docs/prompts.md`.
 upload `quiz_questions.csv` (from `data/`) to STAGE_QUIZ_DATA when asked.
-verify with the phase 2 checklist.
+verify with the done criteria at the end of the phase 2 prompt.
 
 ---
 
@@ -66,14 +66,14 @@ verify with the phase 2 checklist.
 
 paste the **phase 3** prompt from `docs/prompts.md`.
 when Cortex Code finishes, upload `quiz.py` (from the editor) and `environment.yml` to STAGE_SIS_APP.
-verify with the phase 3 checklist.
+verify with the done criteria at the end of the phase 3 prompt.
 
 ---
 
 ## step 8 - run phase 4: verification
 
 open the app: Snowsight > Streamlit > SNOWPRO_QUIZ.
-paste the **phase 4** prompt and complete the verification checklist from `docs/checklists.md`.
+paste the **phase 4** prompt and walk through the verification items.
 
 ---
 

@@ -19,12 +19,14 @@ if you are comfortable with Snowflake, use [INSTRUCTIONS.md](INSTRUCTIONS.md) in
 
 ## before you start - what is this project?
 
-you are going to use **Cortex Code** - an AI coding agent built into Snowsight - to build a quiz app that runs inside Snowflake. you will not write code manually. instead, you direct the agent using structured prompts, review what it produces, and run the verification checks yourself (`docs/checklists.md`).
+you are going to use **Cortex Code** - an AI coding agent built into Snowsight - to build a quiz app that runs inside Snowflake. you will not write code manually. instead, you direct the agent using structured prompts, review what it produces, and run the verification checks listed in each phase prompt (`docs/prompts.md`).
 
 by the end you will have:
 - a working **Streamlit in Snowflake** app with community-sourced SnowPro Core practice questions
 - hands-on experience with **Cortex AI functions** (AI_COMPLETE, AI_PARSE_DOCUMENT)
 - a personal study tool to use while preparing for the **COF-C02 certification exam**
+
+see `docs/skills.md` for a description of each skill used in the project.
 
 estimated time: 1-2 hours (depending on your familiarity with Snowflake).
 
@@ -101,7 +103,7 @@ open a workspace in Snowsight and open the Cortex Code chat panel (white star ic
 2. **upload skills:** click the **+** icon in the chat input > **Upload skill folder(s)** > select the `skills/` folder from your local clone
 
 > Cortex Code will now read AGENTS.md as background context on every message you send.
-> the skills folder adds custom slash commands (`/cortex-prompt`, `/sql-safe`, `/pre-deploy-scan`, `/cortex-ai`) that Cortex Code uses during the build phases.
+> the skills folder adds custom slash commands (`/cortex-prompt`, `/streamlit-in-snowflake`, `/cortex-ai`, `/switch-exam`) that Cortex Code uses during the build phases. see `docs/skills.md` for details.
 
 ---
 

@@ -73,14 +73,15 @@ cortex-code-sis-quiz/
 ├── docs/
 │   ├── AGENTS.md                       <- Cortex Code context (do not restructure)
 │   ├── prompts.md                      <- Cortex Code phase prompts (paste into chat)
-│   ├── checklists.md                   <- verification queries for each phase
-│   └── known-bugs.md                   <- common issues and fixes
+│   ├── skills.md                       <- skill descriptions and usage
+│   ├── custom_config.md                <- customisation options
+│   └── known_bugs.md                   <- common issues and fixes
 ├── setup/
 │   ├── setup.sql                       <- SQL bootstrap script
 │   └── setup.md                        <- explains what setup.sql creates and why
 └── skills/
-    ├── pre-deploy-scan/SKILL.md        <- 22-item safety gate before every deploy
+    ├── streamlit-in-snowflake/SKILL.md <- SiS coding patterns + 22-item pre-deploy scan
     ├── cortex-ai/SKILL.md              <- Cortex AI function patterns and diagnostics
-    ├── sql-safe/SKILL.md               <- SQL injection audit
-    └── cortex-prompt/SKILL.md          <- prompt quality audit
+    ├── cortex-prompt/SKILL.md          <- prompt quality audit
+    └── switch-exam/SKILL.md            <- switch quiz to a different certification exam
 ```
