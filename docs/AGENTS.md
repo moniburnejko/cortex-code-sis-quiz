@@ -608,54 +608,43 @@ the "📊 Progress" tab. shows learning analytics from QUIZ_SESSION_LOG and QUIZ
 
 Row 1 — 3 metric cards (`st.columns(3)`):
 - `st.metric("Sessions", sessions)`
-- `st.metric("Avg Score", f"{avg_score:.1f}%", delta=f"{avg_score-75:+.1f}% vs pass")`
+- `st.metric("Avg Score", f"{avg_score:.1f}%", delta=f"{avg_score-75:+.1f}% vs pass threshold")`
 - `st.metric("Questions Practiced", total_questions)`
 
 `st.divider()`
 
-Row 2 — 2 panels (`st.columns(2)`):
-- Left: **Readiness Score**
-  ```python
-  st.markdown("**Readiness Score**")
-  st.progress(avg_score / 100)
-  st.caption(f"{avg_score:.1f}% — need 75% to pass ({avg_score-75:+.1f}%)")
-  ```
-- Right: **Recent Sessions** — Altair bar chart:
-  ```python
-  import altair as alt
-  bars = alt.Chart(df).mark_bar().encode(
-      x=alt.X("session_num:O", title="Session", axis=alt.Axis(labelAngle=0)),
-      y=alt.Y("score_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Score %"),
-      color=alt.condition(
-          alt.datum.score_pct >= 75,
-          alt.value("#4CAF50"),
-          alt.value("#2196F3")
-      )
-  )
-  rule = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(
-      color="red", strokeDash=[4, 4]
-  ).encode(y="y:Q")
-  st.altair_chart(bars + rule, use_container_width=True)
-  ```
+Row 2 — **Score per Session** line chart, full width (not in a column):
+```python
+line = alt.Chart(df).mark_line(point=True, color="#29b5e8").encode(
+    x=alt.X("session_num:O", title="Session", axis=alt.Axis(labelAngle=0)),
+    y=alt.Y("score_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Score %"),
+)
+rule = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(
+    color="red", strokeDash=[4, 4]
+).encode(y="y:Q")
+st.altair_chart((line + rule).properties(title="Score per Session"), use_container_width=True)
+```
 
 `st.divider()`
 
 Row 3 — 2 panels (`st.columns(2)`):
-- Left: **Errors by Domain** — Altair horizontal bar chart:
+- Left: **Readiness Score** — metric with delta + progress bar, no caption (metric already explains everything):
   ```python
-  chart = alt.Chart(df).mark_bar().encode(
-      x=alt.X("error_count:Q", title="Errors"),
+  st.metric("Readiness Score", f"{avg_score:.1f}%", delta=f"{avg_score-75:+.1f}% vs pass threshold")
+  st.progress(min(avg_score / 100, 1.0))
+  ```
+- Right: **Errors by Domain** — Altair horizontal bar chart with title and integer axis:
+  ```python
+  df_err["error_count"] = df_err["error_count"].astype(int)
+  chart = alt.Chart(df_err).mark_bar().encode(
+      x=alt.X("error_count:Q", title="Errors", axis=alt.Axis(format="d")),
       y=alt.Y("domain_name:N", sort="-x", title=None),
       color=alt.value("#EF5350")
   )
-  st.altair_chart(chart, use_container_width=True)
+  st.altair_chart(chart.properties(title="Errors by Domain"), use_container_width=True)
   ```
-- Right: **Weak Spots** — top 3 domains by error count. for each:
-  ```python
-  st.markdown(f"**{domain_name}** — {count} errors")
-  st.button("Practice", key=f"practice_{domain_name}")  # sets domain_filter + screen="home"
-  ```
-  "Practice" button: sets `st.session_state["domain_filter"] = domain_name` and `st.session_state["screen"] = "home"` (no st.rerun needed)
+
+no Weak Spots section. no Practice buttons.
 
 ---
 

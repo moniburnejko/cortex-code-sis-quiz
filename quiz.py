@@ -752,64 +752,51 @@ def render_dashboard(domains):
         st.info("Complete a quiz round to see your progress here.")
         return
 
+    # Row 1 — key metrics
     c1, c2, c3 = st.columns(3)
     c1.metric("Sessions", sessions)
-    c2.metric("Avg Score", f"{avg_score:.1f}%", delta=f"{avg_score - 75:+.1f}% vs pass")
+    c2.metric("Avg Score", f"{avg_score:.1f}%", delta=f"{avg_score - 75:+.1f}% vs pass threshold")
     c3.metric("Questions Practiced", total_questions)
 
     st.divider()
 
-    left, right = st.columns(2)
-    with left:
-        st.markdown("**Readiness Score**")
-        st.progress(avg_score / 100)
-        st.caption(f"{avg_score:.1f}% \u2014 need 75% to pass ({avg_score - 75:+.1f}%)")
-    with right:
-        st.markdown("**Recent Sessions**")
-        recent = load_recent_sessions()
-        if recent:
-            df = pd.DataFrame(recent)
-            df.columns = [c.lower() for c in df.columns]
-            bars = alt.Chart(df).mark_bar().encode(
-                x=alt.X("session_num:O", title="Session", axis=alt.Axis(labelAngle=0)),
-                y=alt.Y("score_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Score %"),
-                color=alt.condition(
-                    alt.datum.score_pct >= 75,
-                    alt.value("#4CAF50"),
-                    alt.value("#2196F3"),
-                ),
-            )
-            rule = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(
-                color="red", strokeDash=[4, 4]
-            ).encode(y="y:Q")
-            st.altair_chart(bars + rule, use_container_width=True)
+    # Row 2 — score trend line chart, full width
+    recent = load_recent_sessions()
+    if recent:
+        df = pd.DataFrame(recent)
+        df.columns = [c.lower() for c in df.columns]
+        line = alt.Chart(df).mark_line(point=True, color="#29b5e8").encode(
+            x=alt.X("session_num:O", title="Session", axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("score_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Score %"),
+        )
+        rule = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(
+            color="red", strokeDash=[4, 4]
+        ).encode(y="y:Q")
+        st.altair_chart((line + rule).properties(title="Score per Session"), use_container_width=True)
 
     st.divider()
 
-    left2, right2 = st.columns(2)
-    errors = load_domain_errors()
-    with left2:
-        st.markdown("**Errors by Domain**")
-        if errors:
-            df_err = pd.DataFrame(errors)
+    # Row 3 — readiness + errors side by side
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.metric("Readiness Score", f"{avg_score:.1f}%", delta=f"{avg_score - 75:+.1f}% vs pass threshold")
+        st.progress(min(avg_score / 100, 1.0))
+
+    with col_right:
+        error_data = load_domain_errors()
+        if error_data:
+            df_err = pd.DataFrame(error_data)
             df_err.columns = [c.lower() for c in df_err.columns]
+            df_err["error_count"] = df_err["error_count"].astype(int)
             chart = alt.Chart(df_err).mark_bar().encode(
-                x=alt.X("error_count:Q", title="Errors"),
+                x=alt.X("error_count:Q", title="Errors", axis=alt.Axis(format="d")),
                 y=alt.Y("domain_name:N", sort="-x", title=None),
                 color=alt.value("#EF5350"),
             )
-            st.altair_chart(chart, use_container_width=True)
-    with right2:
-        st.markdown("**Weak Spots**")
-        if errors:
-            top3 = errors[:3]
-            for item in top3:
-                dn = item["DOMAIN_NAME"]
-                cnt = item["ERROR_COUNT"]
-                st.markdown(f"**{dn}** \u2014 {cnt} errors")
-                if st.button("Practice", key=f"practice_{dn}"):
-                    st.session_state["domain_filter"] = dn
-                    st.session_state["screen"] = "home"
+            st.altair_chart(chart.properties(title="Errors by Domain"), use_container_width=True)
+        else:
+            st.caption("No errors recorded yet.")
 
 
 init_session_state()

@@ -111,7 +111,11 @@ please confirm each of the following:
 7. SHORT_REASON shown via st.info() after every answer (correct and incorrect)
 8. summary screen: score %, pass/fail indicator, wrong answer cards with full correct answer text
 9. review tab: domain and date filters work, correct_answer column shows full text
-10. "📊 Progress" tab: empty state message before first round; after completing a round shows sessions, avg score, questions practiced, readiness score, recent sessions chart, errors by domain chart, weak spots
+10. "📊 Progress" tab: empty state message before first round; after completing a round shows:
+    - row 1: three metric cards (sessions, avg score, questions practiced)
+    - row 2: "Score per Session" line chart (full width, points + line, red dashed 75% threshold)
+    - row 3: readiness score (st.metric + st.progress, left) and errors by domain bar chart (integer axis, right)
+    - NO Weak Spots section, NO Practice buttons
 
 also run:
 SELECT COUNT(*) FROM {database}.{schema}.QUIZ_REVIEW_LOG;
