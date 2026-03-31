@@ -50,36 +50,33 @@ else:
     render_summary()
 ```
 
-## st.rerun() - exactly 3 occurrences allowed
+## st.rerun() - required pattern for button handlers
 
-`st.rerun()` is valid in exactly three places:
-1. **Submit Answer** button handler — to hide submit and reveal answered state
-2. **Next** button handler — to force a clean rerender after loading the next question. without this, Streamlit renders stale widgets from the previous answered state (duplicate buttons, ghost spinners) alongside the new question.
-3. **Retry** button in AI question error screen — to trigger a fresh generation attempt
+every button handler that triggers a slow operation (`get_question()`, `_write_back_results()`, Cortex calls) must:
+1. wrap the slow call in `st.spinner("...")`
+2. call `st.rerun()` after setting state
 
-Everywhere else: use session state flags. Extra reruns cause blank screens.
+without `st.rerun()`, Streamlit renders stale widgets (duplicate buttons, ghost spinners) from the previous state alongside the new content.
+
+**allowed `st.rerun()` locations** (6 total):
+1. **Start Round** - after `st.spinner("Loading first question...")` + `get_question()`
+2. **Submit Answer** - hide submit, reveal answered state
+3. **Next** - after `st.spinner("Loading question...")` + `get_question()`
+4. **Finish** - after `st.spinner("Saving results...")` + `_write_back_results()`
+5. **Retry** (AI error screen) - trigger fresh generation attempt
+6. **Lazy load** (top of render_quiz, when `question is None`) - after `st.spinner` + `get_question()`
 
 ```python
-# occurrence 1: Submit
-if st.button("Submit Answer", disabled=submit_disabled):
-    st.session_state["answered"] = True
-    st.rerun()
-
-# occurrence 2: Next — set flags only, rerun immediately
-# NEVER call get_question() inside this handler — it causes duplicate widgets
+# pattern: spinner + slow call + state update + rerun
 if st.button("Next"):
     st.session_state["q_index"] += 1
     st.session_state["answered"] = False
-    st.session_state["question"] = None   # triggers lazy load on next cycle
     # ... clear checkbox keys, explanation, etc ...
+    with st.spinner("Loading question..."):
+        q = get_question(...)
+    st.session_state["question"] = q
     st.rerun()
-
-# occurrence 2b: lazy load at top of render_quiz (same rerun cycle)
-# render_quiz detects question=None, loads it with st.spinner, then st.rerun() again
 ```
-
-**CRITICAL — lazy load pattern for Next button:**
-Never call `get_question()` inside a button handler. Streamlit renders the full page top-to-bottom; if the handler takes time (AI generation), stale widgets from the previous state (duplicate buttons, ghost spinners) appear alongside the loading spinner. Instead: set `question = None` + `st.rerun()`, then load the question at the top of `render_quiz` on the fresh rerun cycle.
 
 ## Multi-Answer Checkboxes
 
@@ -122,7 +119,7 @@ Snowflake returns UPPERCASE column names. Normalize with:
 
 ## Session State Reliability in SiS
 
-SiS serializes session_state between reruns. Mutable objects (lists, sets, dicts) stored directly in session_state may not survive reliably — in-place mutations (`.append()`, `.add()`, `dict[key] = val`) are NOT detected by the serializer.
+SiS serializes session_state between reruns. Mutable objects (lists, sets, dicts) stored directly in session_state may not survive reliably - in-place mutations (`.append()`, `.add()`, `dict[key] = val`) are NOT detected by the serializer.
 
 **Rules:**
 1. **Never use separate tracking lists/sets in session_state** for deduplication or counters. They will silently reset.
@@ -132,7 +129,7 @@ SiS serializes session_state between reruns. Mutable objects (lists, sets, dicts
 5. **The "Next" button handler MUST call `st.rerun()`** after loading the new question. Without it, Streamlit renders stale widgets (duplicate buttons, ghost spinners) from the previous answered state alongside the new question.
 
 ```python
-# GOOD — dedup via round_history (survives reruns)
+# GOOD - dedup via round_history (survives reruns)
 def _get_shown_texts():
     texts = [h["question_text"] for h in st.session_state.get("round_history", []) if h.get("question_text")]
     current_q = st.session_state.get("question")
@@ -140,7 +137,7 @@ def _get_shown_texts():
         texts.append(current_q["QUESTION_TEXT"])
     return texts
 
-# BAD — mutable list in session_state (unreliable in SiS)
+# BAD - mutable list in session_state (unreliable in SiS)
 # st.session_state["shown_ids"].append(id)  # may be lost on rerun
 # st.session_state["shown_ids"] = new_list   # still unreliable without rerun
 ```
@@ -148,12 +145,12 @@ def _get_shown_texts():
 ## Styling
 
 No `unsafe_allow_html=True`, no inline CSS. Use native Streamlit components:
-- `st.markdown()` for result row — plain bold text only, no colored boxes for correct/incorrect feedback
+- `st.markdown()` for result row - plain bold text only, no colored boxes for correct/incorrect feedback
 - `st.info()` for mnemonic box (`💡 Remember: ...`)
 - `st.success()` / `st.warning()` for pass/fail summary (one-line only)
 - `st.caption()` for secondary/metadata text (domain, difficulty, dates)
 - `st.container(border=True)` for card-style grouping (supported in SiS 1.52.*)
-- `st.progress(value, text="...")` — `text` param supported in SiS 1.52.*
+- `st.progress(value, text="...")` - `text` param supported in SiS 1.52.*
 - `st.set_page_config(layout="centered")` must be the **first** `st.*` call in the file
 
 ## SQL Safety
@@ -222,9 +219,9 @@ Must not appear. Use `AI_COMPLETE` via `session.sql()` only.
 
 **9. `st.rerun()` count**
 Count all occurrences.
-- PASS: exactly 3 occurrences — Submit Answer handler, Next button handler, and Retry button handler
-- FAIL: 0-2 occurrences (missing Next rerun causes duplicate buttons/ghost spinners)
-- FAIL: 4 or more occurrences (extra reruns cause blank screen)
+- PASS: exactly 6 occurrences - Start Round, lazy load (top of render_quiz), Retry, Submit Answer, Finish, Next
+- FAIL: fewer than 6 (missing rerun causes duplicate buttons/ghost spinners)
+- FAIL: more than 6 (extra reruns cause blank screen)
 
 **10. `st.experimental_rerun()`**
 Must not appear.
@@ -270,9 +267,9 @@ Every `@st.cache_data` function must call `get_active_session()` inside its own 
 - FAIL: `layout="wide"` is used
 
 **18. Screen transitions**
-Setting `st.session_state["screen"]` and returning is the correct pattern. Calling `st.rerun()` on a screen transition is a bug (counts against item 9).
-- PASS: screen transitions use session_state assignment only
-- FAIL: st.rerun() called in a screen transition handler
+Button handlers that do slow work (loading questions, writing to DB) MUST call `st.rerun()` after setting `screen` - otherwise stale widgets render alongside the new screen. Wrap the slow call in `st.spinner()`.
+- PASS: Start Round, Finish, Next all use `st.spinner()` + `st.rerun()` pattern
+- FAIL: button handler sets screen without `st.rerun()` when it also does slow work (causes duplicate buttons)
 
 ### Date handling
 

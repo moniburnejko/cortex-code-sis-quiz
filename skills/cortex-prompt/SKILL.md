@@ -51,7 +51,7 @@ Applies to prompts that generate quiz questions. Must include all of:
 - topic list
 - a "DO NOT generate any of these questions" block built from `_get_shown_texts()` (round_history + current question), truncated to 80 chars, last 10
 - PASS: all are present, difficulty description is the full DIFFICULTY_GUIDE text
-- FAIL: any are missing — especially flag if difficulty is just a bare word without the guide description
+- FAIL: any are missing - especially flag if difficulty is just a bare word without the guide description
 - N/A: prompt is not a question generation prompt
 
 **5. Explanation prompt - required context**

@@ -20,24 +20,24 @@ CORTEX_MODEL = "claude-sonnet-4-5"
 
 DIFFICULTY_GUIDE = {
     "easy": (
-        "EASY — single-concept recall. "
+        "EASY - single-concept recall. "
         "Ask 'What is X?', 'Which feature does Y?', or 'What happens when Z?'. "
         "One fact, one clearly correct answer. The wrong options should be obviously wrong "
         "to someone who studied the material."
     ),
     "medium": (
-        "MEDIUM — applied scenario. "
+        "MEDIUM - applied scenario. "
         "Present a real-world use-case and ask which approach, feature, or configuration is best. "
         "Requires understanding trade-offs. All four options should be plausible Snowflake features "
         "but only one fits the scenario."
     ),
     "hard": (
-        "HARD — tricky edge cases and gotchas. "
+        "HARD - tricky edge cases and gotchas. "
         "Ask about exceptions to general rules, counterintuitive behaviors, precise limits, "
         "or scenarios where the obvious answer is wrong. "
-        "All options must look plausible — the correct answer should surprise someone "
+        "All options must look plausible - the correct answer should surprise someone "
         "who only has surface-level knowledge. "
-        "Pick ANY topic from the domain — do not limit to a fixed set of topics."
+        "Pick ANY topic from the domain - do not limit to a fixed set of topics."
     ),
 }
 
@@ -90,7 +90,8 @@ def load_recent_sessions():
     s = get_active_session()
     rows = s.sql(
         f"SELECT ROW_NUMBER() OVER (ORDER BY session_ts) AS session_num, "
-        f"session_ts, score_pct, round_size "
+        f"session_ts, score_pct, round_size, "
+        f"'#' || ROW_NUMBER() OVER (ORDER BY session_ts) || ' · ' || TO_CHAR(session_ts, 'DD/MM') AS session_label "
         f"FROM {FQN}.QUIZ_SESSION_LOG ORDER BY session_ts ASC LIMIT 10"
     ).collect()
     return [{k.upper(): v for k, v in r.as_dict().items()} for r in rows]
@@ -192,7 +193,7 @@ def generate_ai_question(domain, difficulty):
         f"=== DIFFICULTY: {difficulty.upper()} ===\n"
         f"{DIFFICULTY_GUIDE[difficulty]}\n\n"
         "This difficulty level is your PRIMARY constraint. The question MUST match this difficulty.\n"
-        "Self-check: \"Would someone who only memorized definitions get this right?\" — if YES, make it harder.\n\n"
+        "Self-check: \"Would someone who only memorized definitions get this right?\" - if YES, make it harder.\n\n"
         f"Generate ONE SnowPro Core (COF-C02) multiple-choice question for the domain: {domain_name}\n\n"
         f"Reference material (use for factual accuracy only):\n{reference}\n\n"
     )
@@ -381,9 +382,11 @@ def render_home(domains):
         st.session_state["selected"] = []
         st.session_state["explanation"] = None
         st.session_state["current_history_item"] = None
-        q = get_question(domains, difficulty, domain_filter, question_source)
+        with st.spinner("Loading first question..."):
+            q = get_question(domains, difficulty, domain_filter, question_source)
         st.session_state["question"] = q
         st.session_state["screen"] = "quiz"
+        st.rerun()
 
 
 def _build_option_texts(q):
@@ -524,7 +527,7 @@ def render_quiz(domains):
 
             if isinstance(explanation, dict) and explanation:
                 if not is_correct:
-                    with st.expander("\u2728 AI Explanation", expanded=True):
+                    with st.expander("\u2728 AI Explanation", expanded=False):
                         wc = explanation.get("why_correct", "")
                         if wc:
                             st.markdown("**Why the correct answer is right:**")
@@ -550,8 +553,10 @@ def render_quiz(domains):
         if is_last:
             with nav_r:
                 if st.button("Finish", type="primary", use_container_width=True):
-                    _write_back_results()
+                    with st.spinner("Saving results..."):
+                        _write_back_results()
                     st.session_state["screen"] = "summary"
+                    st.rerun()
         else:
             with nav_r:
                 if st.button("Next", use_container_width=True):
@@ -752,7 +757,7 @@ def render_dashboard(domains):
         st.info("Complete a quiz round to see your progress here.")
         return
 
-    # Row 1 — key metrics
+    # Row 1 - key metrics
     c1, c2, c3 = st.columns(3)
     c1.metric("Sessions", sessions)
     c2.metric("Avg Score", f"{avg_score:.1f}%", delta=f"{avg_score - 75:+.1f}% vs pass threshold")
@@ -760,13 +765,13 @@ def render_dashboard(domains):
 
     st.divider()
 
-    # Row 2 — score trend line chart, full width
+    # Row 2 - score trend line chart, full width
     recent = load_recent_sessions()
     if recent:
         df = pd.DataFrame(recent)
         df.columns = [c.lower() for c in df.columns]
         line = alt.Chart(df).mark_line(point=True, color="#29b5e8").encode(
-            x=alt.X("session_num:O", title="Session", axis=alt.Axis(labelAngle=0)),
+            x=alt.X("session_label:N", title=None, sort=alt.SortField("session_num"), axis=alt.Axis(labelAngle=0)),
             y=alt.Y("score_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Score %"),
         )
         rule = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(
@@ -776,7 +781,7 @@ def render_dashboard(domains):
 
     st.divider()
 
-    # Row 3 — readiness + errors side by side
+    # Row 3 - readiness + errors side by side
     col_left, col_right = st.columns(2)
 
     with col_left:
@@ -790,7 +795,7 @@ def render_dashboard(domains):
             df_err.columns = [c.lower() for c in df_err.columns]
             df_err["error_count"] = df_err["error_count"].astype(int)
             chart = alt.Chart(df_err).mark_bar().encode(
-                x=alt.X("error_count:Q", title="Errors", axis=alt.Axis(format="d")),
+                x=alt.X("error_count:Q", title=None, axis=alt.Axis(format="d")),
                 y=alt.Y("domain_name:N", sort="-x", title=None),
                 color=alt.value("#EF5350"),
             )

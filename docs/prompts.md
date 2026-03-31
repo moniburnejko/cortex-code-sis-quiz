@@ -71,7 +71,7 @@ key requirements:
 - use AI_COMPLETE with dollar-quoting for all Cortex calls (see "cortex llm")
 - use parse_cortex_json for all Cortex response parsing — never json.loads() directly
 - explanation generated on-demand in render phase, not in Submit handler
-- st.rerun() exactly twice — Submit Answer handler and Retry button handler
+- st.rerun() in exactly 6 places — Start Round, lazy load (top of render_quiz), Retry, Submit Answer, Finish, Next (see AGENTS.md and /streamlit-in-snowflake skill for details)
 - history_item must include option_texts dict
 - question_source selectbox: mix / db / ai
 - implement render_dashboard() per the "progress dashboard" section of AGENTS.md
@@ -101,20 +101,22 @@ done criteria:
 please confirm each of the following:
 
 1. home screen loads with all 5 controls: round size, difficulty, domain, question source, explanations toggle
-2. DB only mode: questions appear immediately, correct answer shown with full text after submitting
-3. AI only mode: questions generate (may take a few seconds), or retry button appears with error details
-4. Mix mode: mix of DB and AI questions
-5. result display: plain text — "Correct!" or "Incorrect!" followed by correct answer and your answer (no green/red boxes)
-6. wrong answer + explanations ON:
+2. "Start Round" shows spinner while loading first question, then transitions cleanly to quiz (no stale home widgets)
+3. DB only mode: questions appear immediately, correct answer shown with full text after submitting
+4. AI only mode: questions generate (may take a few seconds), or retry button appears with error details
+5. Mix mode: mix of DB and AI questions
+6. result display: plain text — "Correct!" or "Incorrect!" followed by correct answer and your answer (no green/red boxes)
+7. wrong answer + explanations ON:
    - spinner appears while generating
-   - "✨ AI Explanation" shows: why_correct (2-3 sentences), why_wrong (per-option), mnemonic (💡 Remember: ...), doc_url
-7. SHORT_REASON shown via st.info() after every answer (correct and incorrect)
-8. summary screen: score %, pass/fail indicator, wrong answer cards with full correct answer text
-9. review tab: domain and date filters work, correct_answer column shows full text
-10. "📊 Progress" tab: empty state message before first round; after completing a round shows:
+   - "✨ AI Explanation" collapsed by default (user clicks to expand), shows: why_correct, why_wrong (per-option), mnemonic, doc_url
+8. "Next" button: spinner while loading, single button only (no duplicate), clean transition to next question
+9. "Finish" button: spinner while saving results, single button only, clean transition to summary
+10. summary screen: score %, pass/fail indicator, wrong answer cards with full correct answer text
+11. review tab: domain and date filters work, correct_answer column shows full text
+12. "📊 Progress" tab: empty state message before first round; after completing a round shows:
     - row 1: three metric cards (sessions, avg score, questions practiced)
-    - row 2: "Score per Session" line chart (full width, points + line, red dashed 75% threshold)
-    - row 3: readiness score (st.metric + st.progress, left) and errors by domain bar chart (integer axis, right)
+    - row 2: "Score per Session" line chart (full width, x-axis: "#1 · 31/03" format, red dashed 75% threshold)
+    - row 3: readiness score (st.metric + st.progress, left) and errors by domain bar chart (integer axis, no x-axis title, right)
     - NO Weak Spots section, NO Practice buttons
 
 also run:

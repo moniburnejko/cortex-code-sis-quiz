@@ -69,8 +69,8 @@ CREATE STAGE IF NOT EXISTS {database}.{schema}.STAGE_SIS_APP;
 ```
 
 **why these settings matter:**
-- `ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')` — required by `AI_PARSE_DOCUMENT`. without server-side encryption, Cortex AI functions cannot read staged files. this is the #1 cause of "file not accessible" errors after PDF upload.
-- `DIRECTORY = (ENABLE = TRUE)` — required for Cortex AI functions to enumerate and reference files by path.
+- `ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')` - required by `AI_PARSE_DOCUMENT`. without server-side encryption, Cortex AI functions cannot read staged files. this is the #1 cause of "file not accessible" errors after PDF upload.
+- `DIRECTORY = (ENABLE = TRUE)` - required for Cortex AI functions to enumerate and reference files by path.
 
 if `STAGE_QUIZ_DATA` already exists without these settings, recreate it:
 ```sql
@@ -119,7 +119,7 @@ extract from `SnowProCoreStudyGuide.pdf` using AI_PARSE_DOCUMENT + AI_COMPLETE. 
 
 ### how to call AI_PARSE_DOCUMENT
 
-see the **`cortex-ai` skill** for the correct SQL pattern (`BUILD_SCOPED_FILE_URL`, no `PARSE_JSON`, no manual pagination). the result is a VARIANT with a `content` key — access as `result:content::VARCHAR`.
+see the **`cortex-ai` skill** for the correct SQL pattern (`BUILD_SCOPED_FILE_URL`, no `PARSE_JSON`, no manual pagination). the result is a VARIANT with a `content` key - access as `result:content::VARCHAR`.
 
 ### key_facts extraction
 
@@ -141,7 +141,7 @@ Documentation:
 WHERE domain_id = '{domain_id}';
 ```
 
-pass the **full document content** (from `AI_PARSE_DOCUMENT ... :content::VARCHAR`) as context for each domain's extraction. if `key_facts` is NULL after update (AI_COMPLETE failed), set it to an empty string — do not leave NULL.
+pass the **full document content** (from `AI_PARSE_DOCUMENT ... :content::VARCHAR`) as context for each domain's extraction. if `key_facts` is NULL after update (AI_COMPLETE failed), set it to an empty string - do not leave NULL.
 
 ### QUIZ_QUESTIONS
 
@@ -209,8 +209,14 @@ these are Snowflake / Streamlit-in-Snowflake requirements. they are not style pr
 
 ### re-rendering
 
-- `st.rerun()` is allowed in exactly three places: (1) the Submit Answer button handler — to hide submit and reveal answered state, (2) the Next button handler — to force a clean rerender after loading the next question (without it, stale widgets from the answered state render alongside the new question: duplicate buttons, ghost spinners), and (3) the Retry button in the AI question error screen — to trigger a fresh generation attempt after clearing error state.
-- never call `st.rerun()` from screen transitions (home >quiz, quiz >summary). set `st.session_state["screen"]` and let the next interaction re-render.
+- `st.rerun()` is allowed in exactly six places - each prevents stale widget rendering (duplicate buttons, ghost spinners):
+  1. **Start Round** - after `st.spinner("Loading first question...")` + `get_question()`
+  2. **Lazy load** (top of render_quiz, when `question is None`) - after `st.spinner` + `get_question()`
+  3. **Retry** (AI error screen) - trigger fresh generation attempt
+  4. **Submit Answer** - hide submit, reveal answered state
+  5. **Finish** - after `st.spinner("Saving results...")` + `_write_back_results()`
+  6. **Next** - after `st.spinner("Loading question...")` + `get_question()`
+- every button handler that calls `get_question()` or `_write_back_results()` must wrap the slow call in `st.spinner(...)` and call `st.rerun()` after setting state. this is the pattern that prevents duplicate buttons in SiS.
 
 ### unsupported apis
 
@@ -273,29 +279,29 @@ never call `json.loads()` directly on a Cortex response - always go through the 
 
 ### difficulty guide
 
-define `DIFFICULTY_GUIDE` dict at module level. descriptions define **how** to ask (depth, style, trickiness) — NOT **what** topics to ask about. the domain and topics list control the topic; difficulty controls the framing.
+define `DIFFICULTY_GUIDE` dict at module level. descriptions define **how** to ask (depth, style, trickiness) - NOT **what** topics to ask about. the domain and topics list control the topic; difficulty controls the framing.
 
 ```python
 DIFFICULTY_GUIDE = {
     "easy": (
-        "EASY — single-concept recall. "
+        "EASY - single-concept recall. "
         "Ask 'What is X?', 'Which feature does Y?', or 'What happens when Z?'. "
         "One fact, one clearly correct answer. The wrong options should be obviously wrong "
         "to someone who studied the material."
     ),
     "medium": (
-        "MEDIUM — applied scenario. "
+        "MEDIUM - applied scenario. "
         "Present a real-world use-case and ask which approach, feature, or configuration is best. "
         "Requires understanding trade-offs. All four options should be plausible Snowflake features "
         "but only one fits the scenario."
     ),
     "hard": (
-        "HARD — tricky edge cases and gotchas. "
+        "HARD - tricky edge cases and gotchas. "
         "Ask about exceptions to general rules, counterintuitive behaviors, precise limits, "
         "or scenarios where the obvious answer is wrong. "
-        "All options must look plausible — the correct answer should surprise someone "
+        "All options must look plausible - the correct answer should surprise someone "
         "who only has surface-level knowledge. "
-        "Pick ANY topic from the domain — do not limit to a fixed set of topics."
+        "Pick ANY topic from the domain - do not limit to a fixed set of topics."
     ),
 }
 ```
@@ -309,7 +315,7 @@ the prompt must put **difficulty as the primary constraint** (before any groundi
 {DIFFICULTY_GUIDE[difficulty]}
 
 This difficulty level is your PRIMARY constraint. ...
-Self-check: "Would someone who only memorized definitions get this right?" — if YES, make it harder.
+Self-check: "Would someone who only memorized definitions get this right?" - if YES, make it harder.
 
 Reference material (use for factual accuracy only): {key_facts or domain+topics}
 
@@ -334,9 +340,9 @@ after a successful generation and validation: INSERT the question into `QUIZ_QUE
 
 generate explanations **in the render phase** (`if answered:` block), not in the Submit handler. this keeps submit fast and the Cortex call lazy.
 
-**correct answer:** fetch `doc_url` only — minimal Cortex call returning `{"doc_url": "https://..."}`. render as a plain markdown link below the result row. no expander.
+**correct answer:** fetch `doc_url` only - minimal Cortex call returning `{"doc_url": "https://..."}`. render as a plain markdown link below the result row. no expander.
 
-**wrong answer:** full explanation — `why_correct`, `why_wrong`, `mnemonic`, `doc_url`. render inside expander.
+**wrong answer:** full explanation - `why_correct`, `why_wrong`, `mnemonic`, `doc_url`. render inside expander.
 
 explanation state in `st.session_state["explanation"]`:
 - `None` >not yet attempted; call Cortex and store result
@@ -358,7 +364,7 @@ ask Cortex to return ONLY valid JSON with these keys:
 - `mnemonic`: a memorable phrase, acronym, or analogy to help remember the correct answer
 - `doc_url`: exact URL to the most relevant Snowflake documentation page
 
-**result row** (always shown, for all answers) — plain markdown, no colored boxes:
+**result row** (always shown, for all answers) - plain markdown, no colored boxes:
 ```python
 if is_correct:
     st.markdown("**Correct!**")
@@ -369,7 +375,7 @@ else:
     st.markdown(f"Your answer: {selected_letter}) {selected_text}")
 ```
 
-rendering (`st.expander("✨ AI Explanation", expanded=True)`):
+rendering (`st.expander("✨ AI Explanation", expanded=False)` - collapsed by default, user clicks to expand):
 - `why_correct` >bold header + `st.write()`
 - `why_wrong` >bold header + render each option separately if value is a dict; plain `st.write()` if string
 - `mnemonic` >`st.info("💡 Remember: ...")` - prominent box
@@ -437,7 +443,7 @@ st.divider()
 st.button("Start Round", type="primary", use_container_width=True)
 ```
 
-"Start Round" button: saves all settings to session state, loads the first question, sets screen to "quiz". no `st.rerun()`.
+"Start Round" button: saves all settings to session state, loads the first question (wrapped in `st.spinner("Loading first question...")`), sets screen to "quiz", then `st.rerun()` for clean transition.
 
 ---
 
@@ -485,20 +491,20 @@ Submit Answer button: `type="primary"`, `use_container_width=True`, disabled whe
 
 ### after submission
 
-**result row** (always shown) — plain markdown, no colored boxes. see "AI explanation generation" for exact implementation.
+**result row** (always shown) - plain markdown, no colored boxes. see "AI explanation generation" for exact implementation.
 
 **explanation** (when `use_explanations` is ON):
 - generate and render AI explanation below result row (see "AI explanation generation")
 - `doc_url` link shown for all answers (correct and incorrect)
 
-result row uses `st.markdown()` only — no `st.success()` / `st.error()` for the result row. `st.info()` stays for the mnemonic box.
+result row uses `st.markdown()` only - no `st.success()` / `st.error()` for the result row. `st.info()` stays for the mnemonic box.
 
 ### navigation
 
-last question: "Finish" button >write wrong answers to QUIZ_REVIEW_LOG >go to summary screen.
-other questions: "Next" button >set `question = None`, clear checkbox/explanation state, increment index >`st.rerun()`. the actual question loading happens on the next rerun cycle at the top of `render_quiz` (lazy load pattern — see below).
+last question: "Finish" button >wrap `_write_back_results()` in `st.spinner("Saving results...")` >set screen to summary >`st.rerun()` for clean transition.
+other questions: "Next" button >set `question = None`, clear checkbox/explanation state, increment index >`st.rerun()`. the actual question loading happens on the next rerun cycle at the top of `render_quiz` (lazy load pattern - see below).
 
-navigation buttons: right-aligned — `nav_l, nav_r = st.columns([3, 1])` → place Next / Finish in `nav_r`.
+navigation buttons: right-aligned - `nav_l, nav_r = st.columns([3, 1])` → place Next / Finish in `nav_r`.
 
 ---
 
@@ -517,7 +523,7 @@ get_question(domains, difficulty_filter, domain_filter, question_source)
 - `"ai"`: call `generate_ai_question`, retry up to 3×; return `None` if all fail
 - `"mix"`: 20% chance AI first; if AI fails, fall through to DB
 
-**deduplication (DB questions)**: use a helper `_get_shown_texts()` that collects `question_text` from `round_history` + the current question in `st.session_state["question"]`. pass these as bind params to a `NOT IN` clause in the SQL query. this is more reliable than tracking IDs in session_state lists — `round_history` is proven to survive SiS reruns (the summary screen renders it). do NOT use separate `shown_question_ids` or `shown_question_texts` keys in session_state — mutable objects stored directly in session_state are unreliable in SiS.
+**deduplication (DB questions)**: use a helper `_get_shown_texts()` that collects `question_text` from `round_history` + the current question in `st.session_state["question"]`. pass these as bind params to a `NOT IN` clause in the SQL query. this is more reliable than tracking IDs in session_state lists - `round_history` is proven to survive SiS reruns (the summary screen renders it). do NOT use separate `shown_question_ids` or `shown_question_texts` keys in session_state - mutable objects stored directly in session_state are unreliable in SiS.
 
 **fallback chain** (DB path): domain + difficulty (excluding shown) → domain only (excluding shown) → domain only (full pool, no exclusion).
 
@@ -559,8 +565,8 @@ st.metric(label="Score", value=f"{correct}/{total}", delta=f"{pct:.0f}%")
 ```
 
 pass/fail (one line):
-- passed: `st.success("Passed ✓ — above 75% threshold")`
-- failed: `st.warning(f"Not yet — {75-pct:.1f}% to go")`
+- passed: `st.success("Passed ✓ - above 75% threshold")`
+- failed: `st.warning(f"Not yet - {75-pct:.1f}% to go")`
 
 wrong answers: one `st.expander(question_text[:60] + "…", expanded=False)` per wrong answer containing correct answer with full option text and mnemonic (if any). collapsed by default.
 
@@ -580,11 +586,11 @@ col_b.button("New Round", type="primary")  # back to home
 - date range: cast dates from `.collect()` to `datetime.date`; use `< end+1day` query pattern
 - if no entries: show info message and return early
 - each card: `st.container(border=True)` containing:
-  - `st.caption(f"{domain} · {difficulty} · {date}")` — one metadata line
+  - `st.caption(f"{domain} · {difficulty} · {date}")` - one metadata line
   - `st.markdown(question_text)`
   - `st.markdown(f"**Correct answer:** {answer}")`
-  - `st.markdown(f"💡 {mnemonic}")` — only if mnemonic is non-empty
-  - markdown link to doc_url — only if doc_url is non-empty
+  - `st.markdown(f"💡 {mnemonic}")` - only if mnemonic is non-empty
+  - markdown link to doc_url - only if doc_url is non-empty
 
 ---
 
@@ -596,27 +602,28 @@ the "📊 Progress" tab. shows learning analytics from QUIZ_SESSION_LOG and QUIZ
 
 **cached queries** (all use `@st.cache_data(ttl=60)` with `get_active_session()` inside):
 - `load_session_stats()`: `SELECT COUNT(*) as sessions, AVG(score_pct) as avg_score, SUM(round_size) as total_questions FROM QUIZ_SESSION_LOG`
-- `load_recent_sessions()`: adds a session number for the x-axis:
+- `load_recent_sessions()`: adds session number + human-readable label for x-axis:
   ```sql
   SELECT ROW_NUMBER() OVER (ORDER BY session_ts) AS session_num,
-         session_ts, score_pct, round_size
+         session_ts, score_pct, round_size,
+         '#' || ROW_NUMBER() OVER (ORDER BY session_ts) || ' · ' || TO_CHAR(session_ts, 'DD/MM') AS session_label
   FROM QUIZ_SESSION_LOG ORDER BY session_ts ASC LIMIT 10
   ```
 - `load_domain_errors()`: `SELECT domain_name, COUNT(*) as error_count FROM QUIZ_REVIEW_LOG GROUP BY domain_name ORDER BY error_count DESC`
 
 **layout:**
 
-Row 1 — 3 metric cards (`st.columns(3)`):
+Row 1 - 3 metric cards (`st.columns(3)`):
 - `st.metric("Sessions", sessions)`
 - `st.metric("Avg Score", f"{avg_score:.1f}%", delta=f"{avg_score-75:+.1f}% vs pass threshold")`
 - `st.metric("Questions Practiced", total_questions)`
 
 `st.divider()`
 
-Row 2 — **Score per Session** line chart, full width (not in a column):
+Row 2 - **Score per Session** line chart, full width (not in a column). x-axis uses `session_label` (e.g. "#1 · 31/03") sorted by `session_num`:
 ```python
 line = alt.Chart(df).mark_line(point=True, color="#29b5e8").encode(
-    x=alt.X("session_num:O", title="Session", axis=alt.Axis(labelAngle=0)),
+    x=alt.X("session_label:N", title=None, sort=alt.SortField("session_num"), axis=alt.Axis(labelAngle=0)),
     y=alt.Y("score_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Score %"),
 )
 rule = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(
@@ -627,17 +634,17 @@ st.altair_chart((line + rule).properties(title="Score per Session"), use_contain
 
 `st.divider()`
 
-Row 3 — 2 panels (`st.columns(2)`):
-- Left: **Readiness Score** — metric with delta + progress bar, no caption (metric already explains everything):
+Row 3 - 2 panels (`st.columns(2)`):
+- Left: **Readiness Score** - metric with delta + progress bar, no caption (metric already explains everything):
   ```python
   st.metric("Readiness Score", f"{avg_score:.1f}%", delta=f"{avg_score-75:+.1f}% vs pass threshold")
   st.progress(min(avg_score / 100, 1.0))
   ```
-- Right: **Errors by Domain** — Altair horizontal bar chart with title and integer axis:
+- Right: **Errors by Domain** - Altair horizontal bar chart with title, integer axis, no x-axis label:
   ```python
   df_err["error_count"] = df_err["error_count"].astype(int)
   chart = alt.Chart(df_err).mark_bar().encode(
-      x=alt.X("error_count:Q", title="Errors", axis=alt.Axis(format="d")),
+      x=alt.X("error_count:Q", title=None, axis=alt.Axis(format="d")),
       y=alt.Y("domain_name:N", sort="-x", title=None),
       color=alt.value("#EF5350")
   )
@@ -671,7 +678,7 @@ after all wrong-answer inserts, write one session summary row:
 | `explanation` | None / {} / dict | None=not tried, {}=failed, dict=success |
 | `q_index` | int | 0-based |
 | `round_size` | int | |
-| `round_history` | list | list of history_item dicts — also used as dedup source via `_get_shown_texts()` |
+| `round_history` | list | list of history_item dicts - also used as dedup source via `_get_shown_texts()` |
 | `difficulty` | str | mixed / easy / medium / hard |
 | `domain_filter` | str | "All" or domain name |
 | `question_source` | str | mix / db / ai |
