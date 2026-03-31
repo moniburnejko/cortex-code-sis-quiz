@@ -21,6 +21,30 @@ OPTION_KEYS = ["OPTION_A", "OPTION_B", "OPTION_C", "OPTION_D", "OPTION_E"]
 SOURCE_LABELS = {"mix": "Mix (DB + AI)", "db": "DB only", "ai": "AI only"}
 
 
+DIFFICULTY_GUIDE = {
+    "easy": (
+        "EASY — single-concept recall. "
+        "Ask 'What is X?', 'Which feature does Y?', or 'What happens when Z?'. "
+        "One fact, one clearly correct answer. The wrong options should be obviously wrong "
+        "to someone who studied the material."
+    ),
+    "medium": (
+        "MEDIUM — applied scenario. "
+        "Present a real-world use-case and ask which approach, feature, or configuration is best. "
+        "Requires understanding trade-offs. All four options should be plausible Snowflake features "
+        "but only one fits the scenario."
+    ),
+    "hard": (
+        "HARD — tricky edge cases and gotchas. "
+        "Ask about exceptions to general rules, counterintuitive behaviors, precise limits, "
+        "or scenarios where the obvious answer is wrong. "
+        "All options must look plausible — the correct answer should surprise someone "
+        "who only has surface-level knowledge. "
+        "Pick ANY topic from the domain — do not limit to a fixed set of topics."
+    ),
+}
+
+
 def init_session_state():
     defaults = {
         "screen": "home",
@@ -140,6 +164,15 @@ def parse_cortex_json(response):
     return None
 
 
+def _get_shown_texts():
+    """Get question texts already shown this round from round_history + current question."""
+    texts = [h["question_text"] for h in st.session_state.get("round_history", []) if h.get("question_text")]
+    current_q = st.session_state.get("question")
+    if current_q and current_q.get("QUESTION_TEXT"):
+        texts.append(current_q["QUESTION_TEXT"])
+    return texts
+
+
 def generate_ai_question(domain, difficulty):
     domain_id = domain["DOMAIN_ID"]
     domain_name = domain["DOMAIN_NAME"]
@@ -159,39 +192,33 @@ def generate_ai_question(domain, difficulty):
         if topics_list:
             topics_str = "\nTopics for this domain: " + ", ".join(str(t) for t in topics_list)
 
-    try:
-        recent_rows = session.sql(
-            f"SELECT question_text FROM {FQS}.QUIZ_QUESTIONS WHERE source = 'AI_GENERATED' AND domain_id = :1 ORDER BY created_at DESC LIMIT 20",
-            [domain_id]
-        ).collect()
-        recent_texts = [str(r[0])[:80] for r in recent_rows]
-    except Exception:
-        recent_texts = []
+    difficulty_desc = DIFFICULTY_GUIDE.get(difficulty, DIFFICULTY_GUIDE["medium"])
 
-    session_texts = [h["question_text"][:80] for h in st.session_state.get("round_history", [])]
-    all_recent = list(set(recent_texts + session_texts))[:30]
-    no_repeat_block = "\n".join(f"- {t}" for t in all_recent) if all_recent else "(none)"
+    shown_texts = [t[:80] for t in _get_shown_texts()][-10:]
+    no_repeat_block = ""
+    if shown_texts:
+        formatted = "\n".join(f"- {t}" for t in shown_texts)
+        no_repeat_block = f"\n\nDO NOT generate any of these questions (already shown this session):\n{formatted}"
 
     if key_facts and key_facts.strip():
-        grounding = f"""Ground your question ONLY in the following verified facts from the official study guide:
-
-{key_facts}
-
-Based ONLY on the facts above, generate a {difficulty} multiple-choice question for domain: {domain_name}."""
+        facts_block = f"\n\nReference material (use for factual accuracy only — difficulty still determines framing):\n{key_facts}"
     else:
-        grounding = f"""Generate a {difficulty} multiple-choice question for domain: {domain_name}.{topics_str}"""
+        facts_block = f"\n\nDomain: {domain_name}.{topics_str}"
 
     prompt = f"""You are a SnowPro Core COF-C02 exam question writer.
-{grounding}
-{topics_str}
+
+=== DIFFICULTY: {difficulty.upper()} ===
+{difficulty_desc}
+
+This difficulty level is your PRIMARY constraint. Generate a question that STRICTLY matches it.
+FORBIDDEN for {difficulty.upper()}: questions that a student who read a chapter summary could easily answer.
+Self-check before responding: "Would someone who only memorized definitions get this right?" — if YES, make it harder.
+{facts_block}{no_repeat_block}
+
 Rules:
-- Every answer option must reflect actual Snowflake behavior documented in the facts above
-- The correct answer must be explicitly supported by one of the facts above
-- Wrong options should represent common misconceptions, not invented behaviors
-- Do not include specific numbers, limits, or behaviors not mentioned in the facts above
-- Vary the topic area - prioritize topics not covered recently
-- Do NOT repeat these recent questions:
-{no_repeat_block}
+- Domain: {domain_name}
+- Wrong options must be plausible — not obviously incorrect
+- Vary the topic area within the domain
 - question_text: max 150 characters
 - each option: max 80 characters
 - respond with ONLY the JSON object, no markdown fences, no extra text
@@ -295,37 +322,43 @@ def get_question(domains, difficulty_filter, domain_filter, question_source):
         if q is not None:
             return q
 
-    seen_ids = [h["question_id"] for h in st.session_state.get("round_history", []) if h.get("question_id") is not None]
+    # DB deduplication — use round_history + current question text via SQL NOT IN
+    shown_texts = _get_shown_texts()
+    if shown_texts:
+        placeholders = ", ".join(f":{i+2}" for i in range(len(shown_texts)))
+        exclude_clause = f"AND question_text NOT IN ({placeholders})"
+        params_extra = shown_texts
+    else:
+        exclude_clause = ""
+        params_extra = []
 
-    for fallback in range(3):
-        if fallback == 0:
-            rows = session.sql(
-                f"SELECT * FROM {FQS}.QUIZ_QUESTIONS WHERE domain_id = :1 AND difficulty = :2",
-                [domain["DOMAIN_ID"], diff]
-            ).collect()
-        elif fallback == 1:
-            rows = session.sql(
-                f"SELECT * FROM {FQS}.QUIZ_QUESTIONS WHERE domain_id = :1",
-                [domain["DOMAIN_ID"]]
-            ).collect()
-        else:
-            rows = session.sql(f"SELECT * FROM {FQS}.QUIZ_QUESTIONS").collect()
+    # fallback 0: domain + difficulty, excluding shown
+    rows = session.sql(
+        f"SELECT * FROM {FQS}.QUIZ_QUESTIONS "
+        f"WHERE domain_id = :1 AND difficulty = :2 {exclude_clause} "
+        f"ORDER BY RANDOM() LIMIT 1",
+        [domain["DOMAIN_ID"], diff] + params_extra
+    ).collect()
 
-        if not rows:
-            continue
+    # fallback 1: domain only, excluding shown
+    if not rows:
+        rows = session.sql(
+            f"SELECT * FROM {FQS}.QUIZ_QUESTIONS "
+            f"WHERE domain_id = :1 {exclude_clause} "
+            f"ORDER BY RANDOM() LIMIT 1",
+            [domain["DOMAIN_ID"]] + params_extra
+        ).collect()
 
-        candidates = []
-        for r in rows:
-            d = {k.upper(): v for k, v in r.as_dict().items()}
-            if d.get("QUESTION_ID") not in seen_ids:
-                candidates.append(d)
+    # fallback 2: full pool (including already shown — exhausted pool)
+    if not rows:
+        rows = session.sql(
+            f"SELECT * FROM {FQS}.QUIZ_QUESTIONS "
+            f"WHERE domain_id = :1 ORDER BY RANDOM() LIMIT 1",
+            [domain["DOMAIN_ID"]]
+        ).collect()
 
-        if not candidates:
-            candidates = [{k.upper(): v for k, v in r.as_dict().items()} for r in rows]
-
-        if candidates:
-            return random.choice(candidates)
-
+    if rows:
+        return {k.upper(): v for k, v in rows[0].as_dict().items()}
     return None
 
 
@@ -692,71 +725,51 @@ def render_dashboard(domains):
     avg_score = float(stats.get("AVG_SCORE", 0) or 0)
     total_questions = int(stats.get("TOTAL_QUESTIONS", 0) or 0)
 
+    # Row 1 — key metrics
     c1, c2, c3 = st.columns(3)
     c1.metric("Sessions", sessions)
-    c2.metric("Avg Score", f"{avg_score:.1f}%", delta=f"{avg_score - 75:+.1f}% vs pass")
+    c2.metric("Avg Score", f"{avg_score:.1f}%", delta=f"{avg_score - 75:+.1f}% vs pass threshold")
     c3.metric("Questions Practiced", total_questions)
 
     st.divider()
 
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.markdown("**Readiness Score**")
-        st.progress(avg_score / 100)
-        st.caption(f"{avg_score:.1f}% \u2014 need 75% to pass ({avg_score - 75:+.1f}%)")
-
-    with col_right:
-        recent = load_recent_sessions()
-        if recent:
-            df = pd.DataFrame(recent)
-            df.columns = [c.lower() for c in df.columns]
-            bars = alt.Chart(df).mark_bar().encode(
-                x=alt.X("session_num:O", title="Session", axis=alt.Axis(labelAngle=0)),
-                y=alt.Y("score_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Score %"),
-                color=alt.condition(
-                    alt.datum.score_pct >= 75,
-                    alt.value("#4CAF50"),
-                    alt.value("#2196F3")
-                )
-            )
-            rule = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(
-                color="red", strokeDash=[4, 4]
-            ).encode(y="y:Q")
-            st.altair_chart(bars + rule, use_container_width=True)
-        else:
-            st.caption("No sessions yet.")
+    # Row 2 — score trend line chart, full width
+    recent = load_recent_sessions()
+    if recent:
+        df = pd.DataFrame(recent)
+        df.columns = [c.lower() for c in df.columns]
+        line = alt.Chart(df).mark_line(point=True, color="#29b5e8").encode(
+            x=alt.X("session_num:O", title="Session", axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("score_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Score %"),
+        )
+        rule = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(
+            color="red", strokeDash=[4, 4]
+        ).encode(y="y:Q")
+        st.altair_chart((line + rule).properties(title="Score per Session"), use_container_width=True)
 
     st.divider()
 
-    err_col, weak_col = st.columns(2)
-    error_data = load_domain_errors()
+    # Row 3 — readiness + errors
+    col_left, col_right = st.columns(2)
 
-    with err_col:
+    with col_left:
+        st.metric("Readiness Score", f"{avg_score:.1f}%", delta=f"{avg_score - 75:+.1f}% vs pass threshold")
+        st.progress(min(avg_score / 100, 1.0))
+
+    with col_right:
+        error_data = load_domain_errors()
         if error_data:
             df_err = pd.DataFrame(error_data)
             df_err.columns = [c.lower() for c in df_err.columns]
+            df_err["error_count"] = df_err["error_count"].astype(int)
             chart = alt.Chart(df_err).mark_bar().encode(
-                x=alt.X("error_count:Q", title="Errors"),
+                x=alt.X("error_count:Q", title="Errors", axis=alt.Axis(format="d")),
                 y=alt.Y("domain_name:N", sort="-x", title=None),
                 color=alt.value("#EF5350")
             )
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart.properties(title="Errors by Domain"), use_container_width=True)
         else:
             st.caption("No errors recorded yet.")
-
-    with weak_col:
-        st.markdown("**Weak Spots**")
-        if error_data:
-            top3 = error_data[:3]
-            for item in top3:
-                dn = item["DOMAIN_NAME"]
-                cnt = item["ERROR_COUNT"]
-                st.markdown(f"**{dn}** \u2014 {cnt} errors")
-                if st.button("Practice", key=f"practice_{dn}"):
-                    st.session_state["domain_filter"] = dn
-                    st.session_state["screen"] = "home"
-        else:
-            st.caption("No weak spots identified yet.")
 
 
 init_session_state()

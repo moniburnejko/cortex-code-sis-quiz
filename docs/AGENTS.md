@@ -56,13 +56,30 @@ before writing any streamlit code: read the "platform constraints" section of th
 
 files uploaded to `{database}.{schema}.STAGE_QUIZ_DATA` via snowsight ui.
 
-### stage requirements for STAGE_QUIZ_DATA
+### stage DDL
 
-`STAGE_QUIZ_DATA` must have:
-- `ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')` - required by `AI_PARSE_DOCUMENT` to read files from the stage. without server-side encryption, Cortex AI functions cannot access staged files.
-- `DIRECTORY = (ENABLE = TRUE)` - required for Cortex AI functions to enumerate and reference files on the stage by path.
+both stages must be created in Phase 1 before any file uploads. `STAGE_QUIZ_DATA` requires encryption and directory for `AI_PARSE_DOCUMENT` to work.
 
-`STAGE_SIS_APP` does not require these settings.
+```sql
+CREATE STAGE IF NOT EXISTS {database}.{schema}.STAGE_QUIZ_DATA
+  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
+  DIRECTORY = (ENABLE = TRUE);
+
+CREATE STAGE IF NOT EXISTS {database}.{schema}.STAGE_SIS_APP;
+```
+
+**why these settings matter:**
+- `ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')` — required by `AI_PARSE_DOCUMENT`. without server-side encryption, Cortex AI functions cannot read staged files. this is the #1 cause of "file not accessible" errors after PDF upload.
+- `DIRECTORY = (ENABLE = TRUE)` — required for Cortex AI functions to enumerate and reference files by path.
+
+if `STAGE_QUIZ_DATA` already exists without these settings, recreate it:
+```sql
+DROP STAGE IF EXISTS {database}.{schema}.STAGE_QUIZ_DATA;
+CREATE STAGE {database}.{schema}.STAGE_QUIZ_DATA
+  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
+  DIRECTORY = (ENABLE = TRUE);
+```
+then re-upload files via Snowsight UI.
 
 | file | purpose |
 |---|---|
@@ -137,7 +154,7 @@ CREATE TABLE IF NOT EXISTS {database}.{schema}.QUIZ_QUESTIONS (
     option_e       VARCHAR(500),
     correct_answer VARCHAR NOT NULL,            -- 'A' or 'A,C' for multi
     source         VARCHAR DEFAULT 'MANUAL',    -- MANUAL | AI_GENERATED
-    created_at     TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP()
+    created_at     TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 );
 ```
 
@@ -146,7 +163,7 @@ CREATE TABLE IF NOT EXISTS {database}.{schema}.QUIZ_QUESTIONS (
 ```sql
 CREATE TABLE IF NOT EXISTS {database}.{schema}.QUIZ_REVIEW_LOG (
     log_id         NUMBER AUTOINCREMENT PRIMARY KEY,
-    logged_at      TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP(),
+    logged_at      TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
     domain_id      VARCHAR,
     domain_name    VARCHAR,
     difficulty     VARCHAR,
@@ -248,45 +265,58 @@ always call `isinstance(result, dict)` before calling `.get()` on the return val
 
 never call `json.loads()` directly on a Cortex response - always go through the parsing function.
 
+### difficulty guide
+
+define `DIFFICULTY_GUIDE` dict at module level. descriptions define **how** to ask (depth, style, trickiness) — NOT **what** topics to ask about. the domain and topics list control the topic; difficulty controls the framing.
+
+```python
+DIFFICULTY_GUIDE = {
+    "easy": (
+        "EASY — single-concept recall. "
+        "Ask 'What is X?', 'Which feature does Y?', or 'What happens when Z?'. "
+        "One fact, one clearly correct answer. The wrong options should be obviously wrong "
+        "to someone who studied the material."
+    ),
+    "medium": (
+        "MEDIUM — applied scenario. "
+        "Present a real-world use-case and ask which approach, feature, or configuration is best. "
+        "Requires understanding trade-offs. All four options should be plausible Snowflake features "
+        "but only one fits the scenario."
+    ),
+    "hard": (
+        "HARD — tricky edge cases and gotchas. "
+        "Ask about exceptions to general rules, counterintuitive behaviors, precise limits, "
+        "or scenarios where the obvious answer is wrong. "
+        "All options must look plausible — the correct answer should surprise someone "
+        "who only has surface-level knowledge. "
+        "Pick ANY topic from the domain — do not limit to a fixed set of topics."
+    ),
+}
+```
+
 ### AI question generation
 
-ask Cortex to generate a `{difficulty}` question for the given domain, grounded in `key_facts` from EXAM_DOMAINS. the prompt must follow this structure:
+the prompt must put **difficulty as the primary constraint** (before any grounding/facts). structure:
 
 ```
-You are a SnowPro Core COF-C02 exam question writer.
-Ground your question ONLY in the following verified facts from the official study guide:
+=== DIFFICULTY: {difficulty.upper()} ===
+{DIFFICULTY_GUIDE[difficulty]}
 
-{key_facts}
+This difficulty level is your PRIMARY constraint. ...
+Self-check: "Would someone who only memorized definitions get this right?" — if YES, make it harder.
 
-Based ONLY on the facts above, generate a {difficulty} multiple-choice question for domain: {domain_name}.
-Rules:
-- Every answer option must reflect actual Snowflake behavior documented in the facts above
-- The correct answer must be explicitly supported by one of the facts above
-- Wrong options should represent common misconceptions, not invented behaviors
-- Do not include specific numbers, limits, or behaviors not mentioned in the facts above
-- Vary the topic area — prioritize topics not covered recently
-- Do NOT repeat these recent questions:
-{no_repeat_block}
+Reference material (use for factual accuracy only): {key_facts or domain+topics}
 
-Return ONLY a valid JSON object (no markdown fences) with these exact keys: ...
+DO NOT generate any of these questions: {no_repeat_block}
 ```
 
-if `key_facts` is empty for a domain, fall back to topics-only prompt (no grounding context).
+if `key_facts` is empty for a domain, use domain + topics as reference material instead.
 
-length constraints (include explicitly in the prompt to prevent truncation):
+length constraints (include explicitly in the prompt):
 - `question_text`: max 150 characters
 - each option: max 80 characters
-- respond with ONLY the JSON object, no markdown fences, no extra text
 
-to avoid repetition across sessions: before calling AI_COMPLETE, query the last 20 AI-generated questions for this domain:
-```sql
-SELECT question_text FROM QUIZ_QUESTIONS
-WHERE source = 'AI_GENERATED' AND domain_id = :1
-ORDER BY created_at DESC LIMIT 20
-```
-merge these with question texts already asked this session (from round_history). truncate each to 80 chars. pass up to 30 unique items as a "do not repeat" block in the prompt.
-
-also pass the domain's topics list (from EXAM_DOMAINS) in the prompt and ask Cortex to "vary the topic area — prioritize topics not covered recently".
+to avoid repetition: use `_get_shown_texts()` (same helper as DB dedup) to collect question texts from `round_history` + current question. truncate each to 80 chars, take last 10, and include as a "DO NOT generate any of these questions" block in the prompt.
 
 validate the parsed result: `question_text`, `option_a`, `option_b`, `correct_answer` must all be non-empty. retry up to 3 times on failure.
 
@@ -461,9 +491,9 @@ get_question(domains, difficulty_filter, domain_filter, question_source)
 - `"ai"`: call `generate_ai_question`, retry up to 3×; return `None` if all fail
 - `"mix"`: 20% chance AI first; if AI fails, fall through to DB
 
-**deduplication (DB questions)**: before picking from the DB result set, collect `QUESTION_ID` values from `round_history` and exclude them. only fall back to the full pool if all matching questions have already been shown this round.
+**deduplication (DB questions)**: use a helper `_get_shown_texts()` that collects `question_text` from `round_history` + the current question in `st.session_state["question"]`. pass these as bind params to a `NOT IN` clause in the SQL query. this is more reliable than tracking IDs in session_state lists — `round_history` is proven to survive SiS reruns (the summary screen renders it). do NOT use separate `shown_question_ids` or `shown_question_texts` keys in session_state — mutable objects stored directly in session_state are unreliable in SiS.
 
-**fallback chain** (DB path): domain + difficulty >domain only >all questions.
+**fallback chain** (DB path): domain + difficulty (excluding shown) → domain only (excluding shown) → domain only (full pool, no exclusion).
 
 when `question_source == "ai"` and all retries fail: return `None`. `render_quiz` handles `q is None` with retry UI showing debug info from `last_cortex_error`, `last_ai_response`, `last_ai_parse_error`.
 
@@ -626,7 +656,7 @@ after all wrong-answer inserts, write one session summary row:
 | `explanation` | None / {} / dict | None=not tried, {}=failed, dict=success |
 | `q_index` | int | 0-based |
 | `round_size` | int | |
-| `round_history` | list | list of history_item dicts |
+| `round_history` | list | list of history_item dicts — also used as dedup source via `_get_shown_texts()` |
 | `difficulty` | str | mixed / easy / medium / hard |
 | `domain_filter` | str | "All" or domain name |
 | `question_source` | str | mix / db / ai |

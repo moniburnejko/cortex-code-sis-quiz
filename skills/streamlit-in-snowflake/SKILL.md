@@ -103,6 +103,31 @@ Snowflake returns UPPERCASE column names. Normalize with:
 {k.upper(): v for k, v in row.as_dict().items()}
 ```
 
+## Session State Reliability in SiS
+
+SiS serializes session_state between reruns. Mutable objects (lists, sets, dicts) stored directly in session_state may not survive reliably — in-place mutations (`.append()`, `.add()`, `dict[key] = val`) are NOT detected by the serializer.
+
+**Rules:**
+1. **Never use separate tracking lists/sets in session_state** for deduplication or counters. They will silently reset.
+2. **Use `round_history`** (which is built in the Submit handler + `st.rerun()`) as the single source of truth for "what has been shown."
+3. **For DB dedup:** collect `question_text` values from `round_history` + current question, pass them as bind params to `NOT IN` in SQL.
+4. **For AI dedup:** collect `question_text[:80]` from `round_history`, pass as "DO NOT repeat" block in the prompt.
+5. **Never rely on state written in the "Next" button handler** (which does NOT call `st.rerun()`). Only state written before a `st.rerun()` is guaranteed to persist.
+
+```python
+# GOOD — dedup via round_history (survives reruns)
+def _get_shown_texts():
+    texts = [h["question_text"] for h in st.session_state.get("round_history", []) if h.get("question_text")]
+    current_q = st.session_state.get("question")
+    if current_q and current_q.get("QUESTION_TEXT"):
+        texts.append(current_q["QUESTION_TEXT"])
+    return texts
+
+# BAD — mutable list in session_state (unreliable in SiS)
+# st.session_state["shown_ids"].append(id)  # may be lost on rerun
+# st.session_state["shown_ids"] = new_list   # still unreliable without rerun
+```
+
 ## Styling
 
 No `unsafe_allow_html=True`, no inline CSS. Use native Streamlit components:
